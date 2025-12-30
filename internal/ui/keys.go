@@ -14,6 +14,7 @@ type KeyMap struct {
 	Quit     key.Binding
 	ToggleNS key.Binding
 	Refresh  key.Binding
+	ViewSpec key.Binding
 }
 
 var Keys = KeyMap{
@@ -52,5 +53,9 @@ var Keys = KeyMap{
 	Refresh: key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "refresh"),
+	),
+	ViewSpec: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "view spec"),
 	),
 }

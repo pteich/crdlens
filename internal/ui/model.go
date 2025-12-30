@@ -24,6 +24,7 @@ type Model struct {
 	crdList  *views.CRDListModel
 	crList   *views.CRListModel
 	crDetail *views.CRDetailModel
+	crdSpec  *views.CRDSpecModel
 	help     *views.HelpModel
 	showHelp bool
 	spinner  spinner.Model
@@ -114,12 +115,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.crDetail.Init()
 					}
 				}
+			case "s":
+				if m.state == CRDListView && m.crdList != nil && !m.crdList.IsFiltering() {
+					selected := m.crdList.SelectedCRD()
+					if selected.Name != "" {
+						m.state = CRDSpecView
+						m.crdSpec = views.NewCRDSpecModel(m.client, selected, m.width, m.height)
+						return m, m.crdSpec.Init()
+					}
+				}
 			case "esc":
 				if m.state == CRListView {
 					m.state = CRDListView
 					return m, nil
 				} else if m.state == CRDetailView {
 					m.state = CRListView
+					return m, nil
+				} else if m.state == CRDSpecView {
+					m.state = CRDListView
 					return m, nil
 				}
 			}
@@ -166,6 +179,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
+	if m.crdSpec != nil && m.state == CRDSpecView {
+		newModel, cmd := m.crdSpec.Update(msg)
+		m.crdSpec = newModel.(*views.CRDSpecModel)
+		cmds = append(cmds, cmd)
+	}
+
 	return m, tea.Batch(cmds...)
 }
 
@@ -198,6 +217,12 @@ func (m Model) View() string {
 			view = m.crDetail.View()
 		} else {
 			view = fmt.Sprintf("\n %s Loading CR Detail...", m.spinner.View())
+		}
+	case CRDSpecView:
+		if m.crdSpec != nil {
+			view = m.crdSpec.View()
+		} else {
+			view = fmt.Sprintf("\n %s Loading CRD Spec...", m.spinner.View())
 		}
 	default:
 		view = "Unknown View"

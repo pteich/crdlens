@@ -69,3 +69,12 @@ func (s *DynamicService) GetResource(ctx context.Context, gvr schema.GroupVersio
 		Raw:       item,
 	}, nil
 }
+
+// CountResources counts the number of CR instances for a given GVR
+func (s *DynamicService) CountResources(ctx context.Context, gvr schema.GroupVersionResource, namespace string) (int, error) {
+	res, err := s.client.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to count %s: %w", gvr.Resource, err)
+	}
+	return len(res.Items), nil
+}

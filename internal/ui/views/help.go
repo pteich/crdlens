@@ -20,6 +20,7 @@ type keyMap struct {
 	Filter    key.Binding
 	Namespace key.Binding
 	Refresh   key.Binding
+	ViewSpec  key.Binding
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view
@@ -30,9 +31,9 @@ func (k keyMap) ShortHelp() []key.Binding {
 // FullHelp returns keybindings to be shown in the expanded help view
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Left, k.Right},          // first column
-		{k.Enter, k.Esc, k.Filter},               // second column
-		{k.Namespace, k.Refresh, k.Help, k.Quit}, // third column
+		{k.Up, k.Down, k.Left, k.Right},                      // first column
+		{k.Enter, k.Esc, k.Filter},                           // second column
+		{k.Namespace, k.Refresh, k.ViewSpec, k.Help, k.Quit}, // third column
 	}
 }
 
@@ -80,6 +81,10 @@ var keys = keyMap{
 	Refresh: key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "refresh"),
+	),
+	ViewSpec: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "view CRD spec"),
 	),
 }
 

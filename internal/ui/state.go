@@ -7,5 +7,6 @@ const (
 	CRDListView ViewState = iota
 	CRListView
 	CRDetailView
+	CRDSpecView
 	HelpView
 )

@@ -21,7 +21,20 @@ type CRDItem struct {
 
 func (i CRDItem) FilterValue() string { return i.Name }
 func (i CRDItem) Title() string       { return i.Kind }
-func (i CRDItem) Description() string { return fmt.Sprintf("%s (%s)", i.Group, i.Scope) }
+func (i CRDItem) Description() string {
+	desc := fmt.Sprintf("%s (%s)", i.Group, i.Scope)
+	if i.Count > 0 {
+		desc = fmt.Sprintf("%s - %d CR%s", desc, i.Count, pluralize(i.Count))
+	}
+	return desc
+}
+
+func pluralize(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
 
 // CRDListModel is the model for the CRD list view
 type CRDListModel struct {
@@ -74,6 +87,23 @@ func (m *CRDListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.filtered = msg.CRDs
 		items := make([]list.Item, len(msg.CRDs))
 		for i, crd := range msg.CRDs {
+			items[i] = CRDItem{crd}
+		}
+		return m, tea.Batch(m.list.SetItems(items), m.FetchCRDCounts)
+
+	case CRDCountsMsg:
+		for i, crd := range m.allCRDs {
+			if count, ok := msg.Counts[crd.Name]; ok {
+				m.allCRDs[i].Count = count
+			}
+		}
+		for i, crd := range m.filtered {
+			if count, ok := msg.Counts[crd.Name]; ok {
+				m.filtered[i].Count = count
+			}
+		}
+		items := make([]list.Item, len(m.filtered))
+		for i, crd := range m.filtered {
 			items[i] = CRDItem{crd}
 		}
 		return m, m.list.SetItems(items)
@@ -168,6 +198,10 @@ type ErrorMsg struct {
 	Err error
 }
 
+type CRDCountsMsg struct {
+	Counts map[string]int
+}
+
 // FetchCRDs is a command to fetch CRDs from the cluster
 func (m *CRDListModel) FetchCRDs() tea.Msg {
 	m.loading = true
@@ -177,4 +211,21 @@ func (m *CRDListModel) FetchCRDs() tea.Msg {
 		return ErrorMsg{Err: err}
 	}
 	return FetchedCRDsMsg{CRDs: crds}
+}
+
+// FetchCRDCounts is a command to fetch counts for all CRDs (async)
+func (m *CRDListModel) FetchCRDCounts() tea.Msg {
+	dynamicSvc := m.client.Dynamic()
+	namespace := ""
+	counts := make(map[string]int)
+
+	for _, crd := range m.allCRDs {
+		count, err := dynamicSvc.CountResources(context.Background(), crd.GVR, namespace)
+		if err != nil {
+			continue
+		}
+		counts[crd.Name] = count
+	}
+
+	return CRDCountsMsg{Counts: counts}
 }
