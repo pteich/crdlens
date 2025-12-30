@@ -78,6 +78,19 @@ func (m *CRDListModel) View() string {
 	return m.list.View()
 }
 
+// SelectedCRD returns the currently selected CRDInfo
+func (m *CRDListModel) SelectedCRD() types.CRDInfo {
+	if i, ok := m.list.SelectedItem().(CRDItem); ok {
+		return i.CRDInfo
+	}
+	return types.CRDInfo{}
+}
+
+// IsFiltering returns true if the list is currently filtering
+func (m *CRDListModel) IsFiltering() bool {
+	return m.list.FilterState() == list.Filtering
+}
+
 // Messages
 type FetchedCRDsMsg struct {
 	CRDs []types.CRDInfo

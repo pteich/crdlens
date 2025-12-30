@@ -20,6 +20,7 @@ type Model struct {
 	ready  bool
 
 	crdList *views.CRDListModel
+	crList  *views.CRListModel
 }
 
 // NewModel creates a new root model
@@ -45,6 +46,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "enter":
+			if m.state == CRDListView && m.crdList != nil && !m.crdList.IsFiltering() {
+				selected := m.crdList.SelectedCRD()
+				if selected.Name != "" {
+					m.state = CRListView
+					m.crList = views.NewCRListModel(m.client, selected, m.width, m.height)
+					return m, m.crList.Init()
+				}
+			}
+		case "esc":
+			if m.state == CRListView {
+				m.state = CRDListView
+				return m, nil
+			}
 		}
 
 	case tea.WindowSizeMsg:
@@ -55,8 +70,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.crdList = views.NewCRDListModel(m.client, m.width, m.height)
 			cmds = append(cmds, m.crdList.Init())
 		} else {
-			// Update size of child models
-			// We'll need to add a SetSize method to CRDListModel or handle it in Update
+			if m.crdList != nil {
+				// We'll need to add a SetSize method to CRDListModel or handle it in Update
+				// For now bubbles list handles WindowSizeMsg if passed
+			}
+			if m.crList != nil {
+				// Handle resize for CR list
+			}
 		}
 
 		m.ready = true
@@ -65,6 +85,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.crdList != nil && m.state == CRDListView {
 		newModel, cmd := m.crdList.Update(msg)
 		m.crdList = newModel.(*views.CRDListModel)
+		cmds = append(cmds, cmd)
+	}
+
+	if m.crList != nil && m.state == CRListView {
+		newModel, cmd := m.crList.Update(msg)
+		m.crList = newModel.(*views.CRListModel)
 		cmds = append(cmds, cmd)
 	}
 
@@ -88,6 +114,12 @@ func (m Model) View() string {
 			view = m.crdList.View()
 		} else {
 			view = "Loading CRD List..."
+		}
+	case CRListView:
+		if m.crList != nil {
+			view = m.crList.View()
+		} else {
+			view = "Loading CR List..."
 		}
 	default:
 		view = "Unknown View"
