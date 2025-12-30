@@ -13,13 +13,14 @@ import (
 
 // CRListModel is the model for the CR list view
 type CRListModel struct {
-	table   table.Model
-	client  *k8s.Client
-	crd     types.CRDInfo
-	loading bool
-	err     error
-	width   int
-	height  int
+	table     table.Model
+	client    *k8s.Client
+	crd       types.CRDInfo
+	loading   bool
+	err       error
+	resources []types.Resource
+	width     int
+	height    int
 }
 
 // NewCRListModel creates a new CR list model
@@ -76,6 +77,7 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.table.SetRows(rows)
+		m.resources = msg.Resources
 		return m, nil
 
 	case ErrorMsg:
@@ -93,6 +95,15 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
+}
+
+// SelectedResource returns the currently selected resource
+func (m *CRListModel) SelectedResource() types.Resource {
+	idx := m.table.Cursor()
+	if idx >= 0 && idx < len(m.resources) {
+		return m.resources[idx]
+	}
+	return types.Resource{}
 }
 
 // View renders the model

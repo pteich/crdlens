@@ -96,6 +96,11 @@ func (c *Client) Dynamic() *DynamicService {
 	return NewDynamicService(c.DynamicClient)
 }
 
+// Events returns a new EventService
+func (c *Client) Events(namespace string) *EventService {
+	return NewEventService(c.KubeClient.CoreV1().Events(namespace))
+}
+
 // NewDefaultCache returns a new Cache with a default TTL
 func (c *Client) NewDefaultCache() *Cache {
 	return NewCache(5 * time.Minute)

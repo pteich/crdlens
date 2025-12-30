@@ -19,8 +19,9 @@ type Model struct {
 	err    error
 	ready  bool
 
-	crdList *views.CRDListModel
-	crList  *views.CRListModel
+	crdList  *views.CRDListModel
+	crList   *views.CRListModel
+	crDetail *views.CRDetailModel
 }
 
 // NewModel creates a new root model
@@ -54,10 +55,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.crList = views.NewCRListModel(m.client, selected, m.width, m.height)
 					return m, m.crList.Init()
 				}
+			} else if m.state == CRListView && m.crList != nil {
+				selected := m.crList.SelectedResource()
+				if selected.Name != "" {
+					m.state = CRDetailView
+					m.crDetail = views.NewCRDetailModel(m.client, selected, m.width, m.height)
+					return m, m.crDetail.Init()
+				}
 			}
 		case "esc":
 			if m.state == CRListView {
 				m.state = CRDListView
+				return m, nil
+			} else if m.state == CRDetailView {
+				m.state = CRListView
 				return m, nil
 			}
 		}
@@ -77,6 +88,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.crList != nil {
 				// Handle resize for CR list
 			}
+			if m.crDetail != nil {
+				// Handle resize for CR detail
+			}
 		}
 
 		m.ready = true
@@ -91,6 +105,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.crList != nil && m.state == CRListView {
 		newModel, cmd := m.crList.Update(msg)
 		m.crList = newModel.(*views.CRListModel)
+		cmds = append(cmds, cmd)
+	}
+
+	if m.crDetail != nil && m.state == CRDetailView {
+		newModel, cmd := m.crDetail.Update(msg)
+		m.crDetail = newModel.(*views.CRDetailModel)
 		cmds = append(cmds, cmd)
 	}
 
@@ -120,6 +140,12 @@ func (m Model) View() string {
 			view = m.crList.View()
 		} else {
 			view = "Loading CR List..."
+		}
+	case CRDetailView:
+		if m.crDetail != nil {
+			view = m.crDetail.View()
+		} else {
+			view = "Loading CR Detail..."
 		}
 	default:
 		view = "Unknown View"
