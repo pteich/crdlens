@@ -18,22 +18,24 @@ import (
 
 // CRDSpecModel is the model for the CRD spec view
 type CRDSpecModel struct {
-	viewport  viewport.Model
-	table     table.Model
-	client    *k8s.Client
-	crd       types.CRDInfo
-	loading   bool
-	err       error
-	spec      *apiextensionsv1.CustomResourceDefinition
-	fields    []SchemaField
-	showTable bool
-	width     int
-	height    int
+	viewport        viewport.Model
+	table           table.Model
+	client          *k8s.Client
+	crd             types.CRDInfo
+	loading         bool
+	err             error
+	spec            *apiextensionsv1.CustomResourceDefinition
+	fields          []SchemaField
+	showTable       bool
+	showFieldDetail bool
+	selectedField   *SchemaField
+	width           int
+	height          int
 }
 
 // NewCRDSpecModel creates a new CRD spec model
 func NewCRDSpecModel(client *k8s.Client, crd types.CRDInfo, width, height int) *CRDSpecModel {
-	vp := viewport.New(width, height)
+	vp := viewport.New(width, height-8)
 
 	columns := []table.Column{
 		{Title: "Field Path", Width: 40},
@@ -67,7 +69,7 @@ func NewCRDSpecModel(client *k8s.Client, crd types.CRDInfo, width, height int) *
 		width:     width,
 		height:    height,
 		loading:   true,
-		showTable: false,
+		showTable: true,
 	}
 }
 
@@ -109,7 +111,7 @@ func (m *CRDSpecModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.viewport.Width = msg.Width
-		m.viewport.Height = msg.Height
+		m.viewport.Height = msg.Height - 8
 		m.table.SetHeight(msg.Height - 10)
 
 		if m.spec != nil {
@@ -121,13 +123,34 @@ func (m *CRDSpecModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if msg.String() == "tab" {
-			m.showTable = !m.showTable
-			if m.showTable && len(m.fields) > 0 {
-				m.table.GotoTop()
-			}
+		if m.showFieldDetail && (msg.String() == "esc" || msg.String() == "enter") {
+			m.showFieldDetail = false
+			m.selectedField = nil
 			return m, nil
 		}
+
+		if !m.showFieldDetail {
+			if msg.String() == "tab" {
+				m.showTable = !m.showTable
+				if m.showTable && len(m.fields) > 0 {
+					m.table.GotoTop()
+				}
+				return m, nil
+			}
+
+			if m.showTable && msg.String() == "enter" {
+				idx := m.table.Cursor()
+				if idx >= 0 && idx < len(m.fields) {
+					m.selectedField = &m.fields[idx]
+					m.showFieldDetail = true
+				}
+				return m, nil
+			}
+		}
+	}
+
+	if m.showFieldDetail {
+		return m, nil
 	}
 
 	if m.showTable {
@@ -161,20 +184,97 @@ func (m *CRDSpecModel) View() string {
 		Bold(true).
 		Foreground(lipgloss.Color("#7D56F4")).
 		Padding(0, 1).
-		Render(fmt.Sprintf("CRD Spec: %s  [Tab: %s]", m.crd.Name, viewMode))
+		Render(fmt.Sprintf("CRD Spec: %s  [Tab: View Mode (%s)] [Enter: Field Details] [Esc: Close]", m.crd.Name, viewMode))
 
+	var baseView string
 	if m.showTable {
-		return lipgloss.JoinVertical(lipgloss.Left,
+		baseView = lipgloss.JoinVertical(lipgloss.Left,
 			title,
 			"\n",
 			m.table.View(),
 		)
+	} else {
+		baseView = lipgloss.JoinVertical(lipgloss.Left,
+			title,
+			"\n",
+			m.viewport.View(),
+		)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		"\n",
-		m.viewport.View(),
+	if m.showFieldDetail && m.selectedField != nil {
+		return m.renderFieldDetailOverlay(baseView)
+	}
+
+	return baseView
+}
+
+// IsShowingFieldDetail returns whether the field detail overlay is currently shown
+func (m *CRDSpecModel) IsShowingFieldDetail() bool {
+	return m.showFieldDetail
+}
+
+func (m *CRDSpecModel) renderFieldDetailOverlay(baseView string) string {
+	overlayWidth := 60
+	// Ensure overlay doesn't exceed screen width
+	if m.width < overlayWidth+4 {
+		overlayWidth = m.width - 4
+	}
+
+	required := "No"
+	if m.selectedField.Required {
+		required = "Yes"
+	}
+
+	// Styles
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#7D56F4")). // Primary color
+		MarginBottom(1)
+
+	labelStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#F780E2")). // Secondary color
+		Width(12)
+
+	valueStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF"))
+
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#BBBBBB")).
+		MarginTop(1)
+
+	helpStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#626262")).
+		MarginTop(1).
+		Align(lipgloss.Right)
+
+	// Content Construction
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		titleStyle.Render("Field Details"),
+		lipgloss.JoinHorizontal(lipgloss.Left, labelStyle.Render("Path:"), valueStyle.Render(m.selectedField.FieldPath)),
+		lipgloss.JoinHorizontal(lipgloss.Left, labelStyle.Render("Type:"), valueStyle.Render(m.selectedField.Type)),
+		lipgloss.JoinHorizontal(lipgloss.Left, labelStyle.Render("Required:"), valueStyle.Render(required)),
+		descStyle.Render(m.selectedField.Description),
+		helpStyle.Render("esc or enter to close"),
+	)
+
+	// Overlay Box
+	overlay := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#7D56F4")).
+		Padding(1, 2).
+		Width(overlayWidth).
+		Render(content)
+
+	// Center the overlay
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		overlay,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(lipgloss.Color("#1a1a1a")), // Darken background slightly if possible, or just standard
 	)
 }
 
