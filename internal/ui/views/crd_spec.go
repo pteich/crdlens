@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,27 +18,56 @@ import (
 
 // CRDSpecModel is the model for the CRD spec view
 type CRDSpecModel struct {
-	viewport viewport.Model
-	client   *k8s.Client
-	crd      types.CRDInfo
-	loading  bool
-	err      error
-	spec     *apiextensionsv1.CustomResourceDefinition
-	width    int
-	height   int
+	viewport  viewport.Model
+	table     table.Model
+	client    *k8s.Client
+	crd       types.CRDInfo
+	loading   bool
+	err       error
+	spec      *apiextensionsv1.CustomResourceDefinition
+	fields    []SchemaField
+	showTable bool
+	width     int
+	height    int
 }
 
 // NewCRDSpecModel creates a new CRD spec model
 func NewCRDSpecModel(client *k8s.Client, crd types.CRDInfo, width, height int) *CRDSpecModel {
 	vp := viewport.New(width, height)
 
+	columns := []table.Column{
+		{Title: "Field Path", Width: 40},
+		{Title: "Type", Width: 20},
+		{Title: "Required", Width: 12},
+	}
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithFocused(true),
+		table.WithHeight(height-10),
+	)
+
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(false)
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color("229")).
+		Background(lipgloss.Color("57")).
+		Bold(false)
+	t.SetStyles(s)
+
 	return &CRDSpecModel{
-		viewport: vp,
-		client:   client,
-		crd:      crd,
-		width:    width,
-		height:   height,
-		loading:  true,
+		viewport:  vp,
+		table:     t,
+		client:    client,
+		crd:       crd,
+		width:     width,
+		height:    height,
+		loading:   true,
+		showTable: false,
 	}
 }
 
@@ -60,6 +90,14 @@ func (m *CRDSpecModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.viewport.SetContent(string(yamlBytes))
+
+		m.fields = ExtractCRDSchemaFields(msg.Spec)
+		rows := make([]table.Row, len(m.fields))
+		for i, field := range m.fields {
+			rows[i] = field.TableRow()
+		}
+		m.table.SetRows(rows)
+
 		return m, nil
 
 	case ErrorMsg:
@@ -72,6 +110,7 @@ func (m *CRDSpecModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.viewport.Width = msg.Width
 		m.viewport.Height = msg.Height
+		m.table.SetHeight(msg.Height - 10)
 
 		if m.spec != nil {
 			yamlBytes, err := yaml.Marshal(m.spec)
@@ -80,6 +119,21 @@ func (m *CRDSpecModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+
+	case tea.KeyMsg:
+		if msg.String() == "tab" {
+			m.showTable = !m.showTable
+			if m.showTable && len(m.fields) > 0 {
+				m.table.GotoTop()
+			}
+			return m, nil
+		}
+	}
+
+	if m.showTable {
+		var cmd tea.Cmd
+		m.table, cmd = m.table.Update(msg)
+		return m, cmd
 	}
 
 	var cmd tea.Cmd
@@ -98,11 +152,24 @@ func (m *CRDSpecModel) View() string {
 			Render(fmt.Sprintf("Error fetching CRD spec: %v", m.err))
 	}
 
+	viewMode := "YAML"
+	if m.showTable {
+		viewMode = "Table"
+	}
+
 	title := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#7D56F4")).
 		Padding(0, 1).
-		Render(fmt.Sprintf("CRD Spec: %s", m.crd.Name))
+		Render(fmt.Sprintf("CRD Spec: %s  [Tab: %s]", m.crd.Name, viewMode))
+
+	if m.showTable {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			title,
+			"\n",
+			m.table.View(),
+		)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
