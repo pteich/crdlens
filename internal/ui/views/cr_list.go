@@ -5,22 +5,27 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pteich/crdlens/internal/k8s"
+	"github.com/pteich/crdlens/internal/search"
 	"github.com/pteich/crdlens/internal/types"
 )
 
 // CRListModel is the model for the CR list view
 type CRListModel struct {
-	table     table.Model
-	client    *k8s.Client
-	crd       types.CRDInfo
-	loading   bool
-	err       error
-	resources []types.Resource
-	width     int
-	height    int
+	table        table.Model
+	client       *k8s.Client
+	crd          types.CRDInfo
+	loading      bool
+	err          error
+	allResources []types.Resource
+	filtered     []types.Resource
+	width        int
+	height       int
+	textinput    textinput.Model
+	filtering    bool
 }
 
 // NewCRListModel creates a new CR list model
@@ -49,12 +54,17 @@ func NewCRListModel(client *k8s.Client, crd types.CRDInfo, width, height int) *C
 		Bold(false)
 	t.SetStyles(s)
 
+	ti := textinput.New()
+	ti.Placeholder = "Search resources..."
+	ti.Prompt = "/ "
+
 	return &CRListModel{
-		table:  t,
-		client: client,
-		crd:    crd,
-		width:  width,
-		height: height,
+		table:     t,
+		client:    client,
+		crd:       crd,
+		width:     width,
+		height:    height,
+		textinput: ti,
 	}
 }
 
@@ -77,7 +87,8 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.table.SetRows(rows)
-		m.resources = msg.Resources
+		m.allResources = msg.Resources
+		m.filtered = msg.Resources
 		return m, nil
 
 	case ErrorMsg:
@@ -90,6 +101,41 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.table.SetHeight(m.height - 10)
 		return m, nil
+
+	case tea.KeyMsg:
+		if m.filtering {
+			switch msg.String() {
+			case "esc", "enter":
+				m.filtering = false
+				m.textinput.Blur()
+				return m, nil
+			}
+		} else {
+			switch msg.String() {
+			case "/":
+				m.filtering = true
+				m.textinput.Focus()
+				return m, tea.Batch(textinput.Blink)
+			}
+		}
+	}
+
+	if m.filtering {
+		var cmd tea.Cmd
+		m.textinput, cmd = m.textinput.Update(msg)
+
+		// Filter resources based on query
+		m.filtered = search.MatchResources(m.textinput.Value(), m.allResources)
+		rows := make([]table.Row, len(m.filtered))
+		for i, res := range m.filtered {
+			rows[i] = table.Row{
+				res.Name,
+				res.Namespace,
+				res.Age.String(),
+			}
+		}
+		m.table.SetRows(rows)
+		return m, cmd
 	}
 
 	var cmd tea.Cmd
@@ -100,8 +146,8 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // SelectedResource returns the currently selected resource
 func (m *CRListModel) SelectedResource() types.Resource {
 	idx := m.table.Cursor()
-	if idx >= 0 && idx < len(m.resources) {
-		return m.resources[idx]
+	if idx >= 0 && idx < len(m.filtered) {
+		return m.filtered[idx]
 	}
 	return types.Resource{}
 }
@@ -121,11 +167,21 @@ func (m *CRListModel) View() string {
 		Padding(0, 1).
 		Render(fmt.Sprintf("Resources: %s", m.crd.Kind))
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	view := lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"\n",
 		m.table.View(),
 	)
+
+	if m.filtering {
+		view = lipgloss.JoinVertical(lipgloss.Left,
+			view,
+			"\n",
+			m.textinput.View(),
+		)
+	}
+
+	return view
 }
 
 // FetchedCRsMsg is sent when CRs are successfully fetched
