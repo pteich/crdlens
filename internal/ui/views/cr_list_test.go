@@ -9,7 +9,7 @@ import (
 )
 
 func TestCRListModel_Update_FetchedCRs(t *testing.T) {
-	m := NewCRListModel(nil, types.CRDInfo{Kind: "TestKind"}, 100, 100)
+	m := NewCRListModel(nil, types.CRDInfo{Kind: "TestKind"}, "default", 100, 100)
 
 	resources := []types.Resource{
 		{

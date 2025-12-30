@@ -11,6 +11,13 @@ import (
 )
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "Panic recovered: %v\n", r)
+			os.Exit(1)
+		}
+	}()
+
 	// 1. Load configuration
 	cfg, err := config.Load()
 	if err != nil {

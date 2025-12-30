@@ -8,15 +8,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCRListModel_Filtering(t *testing.T) {
-	m := NewCRListModel(nil, types.CRDInfo{Kind: "TestKind"}, "default", 100, 100)
+func TestCRDListModel_Filtering(t *testing.T) {
+	m := NewCRDListModel(nil, 100, 100)
 
-	resources := []types.Resource{
-		{Name: "abc", Namespace: "default"},
-		{Name: "def", Namespace: "kube-system"},
+	crds := []types.CRDInfo{
+		{Name: "certs", Kind: "Certificate"},
+		{Name: "pods", Kind: "Pod"},
 	}
 
-	m.Update(FetchedCRsMsg{Resources: resources})
+	m.Update(FetchedCRDsMsg{CRDs: crds})
 
 	assert.Len(t, m.filtered, 2)
 
@@ -24,10 +24,10 @@ func TestCRListModel_Filtering(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	assert.True(t, m.filtering)
 
-	// Type "a"
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	// Type "c"
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
 	assert.Len(t, m.filtered, 1)
-	assert.Equal(t, "abc", m.filtered[0].Name)
+	assert.Equal(t, "Certificate", m.filtered[0].Kind)
 
 	// Exit filtering
 	m.Update(tea.KeyMsg{Type: tea.KeyEsc})

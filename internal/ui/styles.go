@@ -31,4 +31,16 @@ var (
 			Foreground(PrimaryColor).
 			Bold(true).
 			MarginBottom(1)
+
+	SpinnerStyle = lipgloss.NewStyle().Foreground(SecondaryColor)
+
+	StatusBarMainStyle = lipgloss.NewStyle().
+				Foreground(White).
+				Background(lipgloss.Color("#3C3C3C")).
+				Padding(0, 1)
+
+	StatusBarExtraStyle = lipgloss.NewStyle().
+				Foreground(White).
+				Background(lipgloss.Color("#575757")).
+				Padding(0, 1)
 )

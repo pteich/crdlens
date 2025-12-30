@@ -37,3 +37,29 @@ func TestMatchResources(t *testing.T) {
 	matched = MatchResources("nonexistent", resources)
 	assert.Len(t, matched, 0)
 }
+
+func TestMatchCRDs(t *testing.T) {
+	crds := []types.CRDInfo{
+		{Name: "certificates.cert-manager.io", Kind: "Certificate", Group: "cert-manager.io"},
+		{Name: "prometheuses.monitoring.coreos.com", Kind: "Prometheus", Group: "monitoring.coreos.com"},
+	}
+
+	// Match by name
+	matched := MatchCRDs("cert", crds)
+	assert.Len(t, matched, 1)
+	assert.Equal(t, "Certificate", matched[0].Kind)
+
+	// Match by kind
+	matched = MatchCRDs("Prom", crds)
+	assert.Len(t, matched, 1)
+	assert.Equal(t, "Prometheus", matched[0].Kind)
+
+	// Match by group
+	matched = MatchCRDs("monitoring", crds)
+	assert.Len(t, matched, 1)
+	assert.Equal(t, "Prometheus", matched[0].Kind)
+
+	// Empty query
+	matched = MatchCRDs("", crds)
+	assert.Len(t, matched, 2)
+}

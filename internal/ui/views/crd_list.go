@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -32,6 +33,7 @@ type CRDListModel struct {
 	filtered  []types.CRDInfo
 	textinput textinput.Model
 	filtering bool
+	spinner   spinner.Model
 }
 
 // NewCRDListModel creates a new CRD list model
@@ -45,16 +47,22 @@ func NewCRDListModel(client *k8s.Client, width, height int) *CRDListModel {
 	ti.Placeholder = "Search CRDs..."
 	ti.Prompt = "/ "
 
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F780E2"))
+
 	return &CRDListModel{
 		list:      l,
 		client:    client,
 		textinput: ti,
+		spinner:   s,
+		loading:   true,
 	}
 }
 
 // Init initializes the model
 func (m *CRDListModel) Init() tea.Cmd {
-	return m.FetchCRDs
+	return tea.Batch(m.FetchCRDs, m.spinner.Tick)
 }
 
 // Update handles messages
@@ -70,6 +78,11 @@ func (m *CRDListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.list.SetItems(items)
 
+	case ErrorMsg:
+		m.loading = false
+		m.err = msg.Err
+		return m, nil
+
 	case tea.KeyMsg:
 		if m.filtering {
 			switch msg.String() {
@@ -78,6 +91,17 @@ func (m *CRDListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textinput.Blur()
 				return m, nil
 			}
+			// Handle filtering immediately within KeyMsg case to prevent list interference
+			var cmd tea.Cmd
+			m.textinput, cmd = m.textinput.Update(msg)
+
+			m.filtered = search.MatchCRDs(m.textinput.Value(), m.allCRDs)
+			items := make([]list.Item, len(m.filtered))
+			for i, crd := range m.filtered {
+				items[i] = CRDItem{crd}
+			}
+			m.list.SetItems(items)
+			return m, cmd
 		} else {
 			switch msg.String() {
 			case "/":
@@ -86,35 +110,21 @@ func (m *CRDListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(textinput.Blink)
 			}
 		}
-
-	case ErrorMsg:
-		m.loading = false
-		m.err = msg.Err
-		return m, nil
 	}
 
-	if m.filtering {
-		var cmd tea.Cmd
-		m.textinput, cmd = m.textinput.Update(msg)
-
-		m.filtered = search.MatchCRDs(m.textinput.Value(), m.allCRDs)
-		items := make([]list.Item, len(m.filtered))
-		for i, crd := range m.filtered {
-			items[i] = CRDItem{crd}
-		}
-		m.list.SetItems(items)
-		return m, cmd
-	}
+	// Only reached when NOT filtering
+	var sCmd tea.Cmd
+	m.spinner, sCmd = m.spinner.Update(msg)
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	return m, tea.Batch(cmd, sCmd)
 }
 
 // View renders the model
 func (m *CRDListModel) View() string {
 	if m.loading {
-		return "Loading CRDs..."
+		return fmt.Sprintf("\n %s Loading CRDs...", m.spinner.View())
 	}
 	if m.err != nil {
 		return fmt.Sprintf("Error fetching CRDs: %v", m.err)
@@ -142,6 +152,11 @@ func (m *CRDListModel) SelectedCRD() types.CRDInfo {
 // IsFiltering returns true if the list is currently filtering
 func (m *CRDListModel) IsFiltering() bool {
 	return m.filtering
+}
+
+// Refresh re-fetches the CRDs
+func (m *CRDListModel) Refresh() tea.Cmd {
+	return m.FetchCRDs
 }
 
 // Messages
