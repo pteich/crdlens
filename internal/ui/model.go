@@ -13,18 +13,20 @@ import (
 
 // Model is the root model for the CRDLens TUI
 type Model struct {
-	state  ViewState
-	config *config.Config
-	client *k8s.Client
-	width  int
-	height int
-	err    error
-	ready  bool
+	state     ViewState
+	prevState ViewState
+	config    *config.Config
+	client    *k8s.Client
+	width     int
+	height    int
+	err       error
+	ready     bool
 
 	crdList  *views.CRDListModel
 	crList   *views.CRListModel
 	crDetail *views.CRDetailModel
 	crdSpec  *views.CRDSpecModel
+	nsPicker *views.NSPickerModel
 	help     *views.HelpModel
 	showHelp bool
 	spinner  spinner.Model
@@ -58,17 +60,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.spinner, spinnerCmd = m.spinner.Update(msg)
 	cmds = append(cmds, spinnerCmd)
 
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		// Skip global key handling when any view is in filtering mode
-		isFiltering := false
-		if m.state == CRDListView && m.crdList != nil && m.crdList.IsFiltering() {
-			isFiltering = true
-		} else if m.state == CRListView && m.crList != nil && m.crList.IsFiltering() {
-			isFiltering = true
-		}
+	// Calculate filtering state for all models
+	isFiltering := false
+	if m.crdList != nil && m.crdList.IsFiltering() {
+		isFiltering = true
+	} else if m.crList != nil && m.crList.IsFiltering() {
+		isFiltering = true
+	}
 
-		if !isFiltering {
+	switch msg := msg.(type) {
+	case views.NamespaceSelectedMsg:
+		m.state = m.prevState
+		if msg.Namespace == "all-namespaces" {
+			m.config.AllNamespaces = true
+			m.client.Namespace = ""
+		} else {
+			m.config.AllNamespaces = false
+			m.client.Namespace = msg.Namespace
+		}
+		if m.crList != nil {
+			ns := m.client.Namespace
+			cmds = append(cmds, m.crList.Refresh(ns))
+		}
+		if m.crdList != nil {
+			cmds = append(cmds, m.crdList.Refresh(msg.Namespace))
+		}
+		return m, tea.Batch(cmds...)
+
+	case tea.KeyMsg:
+		if !isFiltering && m.state != NSPickerView {
 			switch msg.String() {
 			case "q", "ctrl+c":
 				return m, tea.Quit
@@ -76,18 +96,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showHelp = !m.showHelp
 				return m, nil
 			case "n":
-				m.config.AllNamespaces = !m.config.AllNamespaces
-				ns := m.client.Namespace
-				if m.config.AllNamespaces {
-					ns = ""
-				}
-				if m.state == CRListView && m.crList != nil {
-					return m, m.crList.Refresh(ns)
-				}
-				return m, nil
+				m.prevState = m.state
+				m.state = NSPickerView
+				m.nsPicker = views.NewNSPickerModel(m.client, m.width, m.height)
+				return m, m.nsPicker.Init()
 			case "r":
 				if m.state == CRDListView && m.crdList != nil {
-					return m, m.crdList.Refresh()
+					ns := m.client.Namespace
+					if m.config.AllNamespaces {
+						ns = "all-namespaces"
+					}
+					return m, m.crdList.Refresh(ns)
 				} else if m.state == CRListView && m.crList != nil {
 					ns := m.client.Namespace
 					if m.config.AllNamespaces {
@@ -143,6 +162,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+		} else if m.state == NSPickerView && msg.String() == "esc" {
+			m.state = m.prevState
+			return m, nil
 		}
 
 	case tea.WindowSizeMsg:
@@ -150,7 +172,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 		if m.crdList == nil {
-			m.crdList = views.NewCRDListModel(m.client, m.width, m.height)
+			ns := m.client.Namespace
+			if m.config.AllNamespaces {
+				ns = "all-namespaces"
+			}
+			m.crdList = views.NewCRDListModel(m.client, ns, m.width, m.height)
 			cmds = append(cmds, m.crdList.Init())
 		} else {
 			if m.crdList != nil {
@@ -164,31 +190,79 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Handle resize for CR detail
 			}
 		}
+	}
+	m.ready = true
 
-		m.ready = true
+	// KeyMsg should ONLY go to the active view to avoid duplicate handling or interference
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if !isFiltering && m.state != NSPickerView {
+			// Global keys are already handled above in the main switch
+		}
+
+		switch m.state {
+		case CRDListView:
+			if m.crdList != nil {
+				newModel, cmd := m.crdList.Update(keyMsg)
+				m.crdList = newModel.(*views.CRDListModel)
+				cmds = append(cmds, cmd)
+			}
+		case CRListView:
+			if m.crList != nil {
+				newModel, cmd := m.crList.Update(keyMsg)
+				m.crList = newModel.(*views.CRListModel)
+				cmds = append(cmds, cmd)
+			}
+		case CRDetailView:
+			if m.crDetail != nil {
+				newModel, cmd := m.crDetail.Update(keyMsg)
+				m.crDetail = newModel.(*views.CRDetailModel)
+				cmds = append(cmds, cmd)
+			}
+		case CRDSpecView:
+			if m.crdSpec != nil {
+				newModel, cmd := m.crdSpec.Update(keyMsg)
+				m.crdSpec = newModel.(*views.CRDSpecModel)
+				cmds = append(cmds, cmd)
+			}
+		case NSPickerView:
+			if m.nsPicker != nil {
+				newModel, cmd := m.nsPicker.Update(keyMsg)
+				m.nsPicker = newModel.(*views.NSPickerModel)
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
 	}
 
-	if m.crdList != nil && m.state == CRDListView {
+	// Non-KeyMsg (background responses, timer ticks, etc.) should go to ALL models
+	// This ensures they stay in sync and don't get stuck in loading states
+	if m.crdList != nil {
 		newModel, cmd := m.crdList.Update(msg)
 		m.crdList = newModel.(*views.CRDListModel)
 		cmds = append(cmds, cmd)
 	}
 
-	if m.crList != nil && m.state == CRListView {
+	if m.crList != nil {
 		newModel, cmd := m.crList.Update(msg)
 		m.crList = newModel.(*views.CRListModel)
 		cmds = append(cmds, cmd)
 	}
 
-	if m.crDetail != nil && m.state == CRDetailView {
+	if m.crDetail != nil {
 		newModel, cmd := m.crDetail.Update(msg)
 		m.crDetail = newModel.(*views.CRDetailModel)
 		cmds = append(cmds, cmd)
 	}
 
-	if m.crdSpec != nil && m.state == CRDSpecView {
+	if m.crdSpec != nil {
 		newModel, cmd := m.crdSpec.Update(msg)
 		m.crdSpec = newModel.(*views.CRDSpecModel)
+		cmds = append(cmds, cmd)
+	}
+
+	if m.nsPicker != nil {
+		newModel, cmd := m.nsPicker.Update(msg)
+		m.nsPicker = newModel.(*views.NSPickerModel)
 		cmds = append(cmds, cmd)
 	}
 
@@ -207,7 +281,7 @@ func (m Model) View() string {
 
 	var view string
 	switch m.state {
-	case CRDListView:
+	case CRDListView, NSPickerView:
 		if m.crdList != nil {
 			view = m.crdList.View()
 		} else {
@@ -250,6 +324,10 @@ func (m Model) View() string {
 		"\n",
 		statusBar,
 	)
+
+	if m.state == NSPickerView && m.nsPicker != nil {
+		view = m.nsPicker.View()
+	}
 
 	if m.showHelp {
 		return lipgloss.JoinVertical(lipgloss.Left,

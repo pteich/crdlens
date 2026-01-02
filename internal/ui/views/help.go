@@ -77,7 +77,7 @@ var keys = keyMap{
 	),
 	Namespace: key.NewBinding(
 		key.WithKeys("n"),
-		key.WithHelp("n", "toggle namespace"),
+		key.WithHelp("n", "select namespace"),
 	),
 	Refresh: key.NewBinding(
 		key.WithKeys("r"),

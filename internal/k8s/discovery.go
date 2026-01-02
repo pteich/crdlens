@@ -3,20 +3,20 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/pteich/crdlens/internal/types"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
 )
 
 // DiscoveryService handles finding CRDs and their GVR info
 type DiscoveryService struct {
-	client discovery.DiscoveryInterface
+	client clientset.Interface
 }
 
 // NewDiscoveryService creates a new DiscoveryService
-func NewDiscoveryService(client discovery.DiscoveryInterface) *DiscoveryService {
+func NewDiscoveryService(client clientset.Interface) *DiscoveryService {
 	return &DiscoveryService{
 		client: client,
 	}
@@ -24,47 +24,45 @@ func NewDiscoveryService(client discovery.DiscoveryInterface) *DiscoveryService 
 
 // ListCRDs finds all CRDs in the cluster
 func (s *DiscoveryService) ListCRDs(ctx context.Context) ([]types.CRDInfo, error) {
-	// We use ServerPreferredResources to find the latest version of all resources
-	resourceLists, err := s.client.ServerPreferredResources()
-	if err != nil && !discovery.IsGroupDiscoveryFailedError(err) {
-		return nil, fmt.Errorf("failed to discover resources: %w", err)
+	crdList, err := s.client.ApiextensionsV1().CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list crds: %w", err)
 	}
 
 	var crds []types.CRDInfo
-	for _, rl := range resourceLists {
-		for _, r := range rl.APIResources {
-			// Skip if it's not a CRD (standard resources don't have a '.' in the group or aren't custom)
-			// Actually, a better way is to check the GroupVersion
-			gv, err := schema.ParseGroupVersion(rl.GroupVersion)
-			if err != nil {
-				continue
+	for _, crd := range crdList.Items {
+		// Find the served version that is marked as storage
+		var version string
+		for _, v := range crd.Spec.Versions {
+			if v.Served {
+				version = v.Name
+				if v.Storage {
+					break
+				}
 			}
-
-			// We are looking for resources that belong to a group (not core 'v1')
-			// and where the Kind matches what we'd expect for a CRD
-			// (this is a heuristic, but usually CRDs have a group like 'cert-manager.io')
-			if gv.Group == "" || !strings.Contains(gv.Group, ".") {
-				continue
-			}
-
-			scope := "Namespaced"
-			if !r.Namespaced {
-				scope = "Cluster"
-			}
-
-			crds = append(crds, types.CRDInfo{
-				Name:    r.Name + "." + gv.Group,
-				Group:   gv.Group,
-				Version: gv.Version,
-				Kind:    r.Kind,
-				Scope:   scope,
-				GVR: schema.GroupVersionResource{
-					Group:    gv.Group,
-					Version:  gv.Version,
-					Resource: r.Name,
-				},
-			})
 		}
+
+		if version == "" {
+			continue
+		}
+
+		scope := "Namespaced"
+		if crd.Spec.Scope == "Cluster" {
+			scope = "Cluster"
+		}
+
+		crds = append(crds, types.CRDInfo{
+			Name:    crd.Name,
+			Group:   crd.Spec.Group,
+			Version: version,
+			Kind:    crd.Spec.Names.Kind,
+			Scope:   scope,
+			GVR: schema.GroupVersionResource{
+				Group:    crd.Spec.Group,
+				Version:  version,
+				Resource: crd.Spec.Names.Plural,
+			},
+		})
 	}
 
 	return crds, nil

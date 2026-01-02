@@ -9,7 +9,7 @@ import (
 )
 
 func TestCRDListModel_Filtering(t *testing.T) {
-	m := NewCRDListModel(nil, 100, 100)
+	m := NewCRDListModel(nil, "", 80, 24)
 
 	crds := []types.CRDInfo{
 		{Name: "certs", Kind: "Certificate"},

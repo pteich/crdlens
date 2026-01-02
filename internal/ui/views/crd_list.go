@@ -23,26 +23,30 @@ func pluralize(n int) string {
 
 // CRDListModel is the model for the CRD list view
 type CRDListModel struct {
-	table        table.Model
-	client       *k8s.Client
-	loading      bool
-	err          error
-	allCRDs      []types.CRDInfo
-	filtered     []types.CRDInfo
-	textinput    textinput.Model
-	filtering    bool
-	spinner      spinner.Model
-	width        int
-	height       int
-	countsLoaded bool
-	tickCount    int
+	table         table.Model
+	client        *k8s.Client
+	loading       bool
+	err           error
+	allCRDs       []types.CRDInfo
+	filtered      []types.CRDInfo
+	textinput     textinput.Model
+	filtering     bool
+	spinner       spinner.Model
+	width         int
+	height        int
+	countsLoaded  bool
+	tickCount     int
+	cachedCounts  map[string]map[string]int // namespace -> crdName -> count
+	lastNamespace string
+	currNamespace string
 }
 
 // NewCRDListModel creates a new CRD list model
-func NewCRDListModel(client *k8s.Client, width, height int) *CRDListModel {
+func NewCRDListModel(client *k8s.Client, namespace string, width, height int) *CRDListModel {
 	columns := []table.Column{
 		{Title: "Name", Width: 40},
 		{Title: "API Group", Width: 40},
+		{Title: "Scope", Width: 12},
 		{Title: "CR Count", Width: 10},
 	}
 
@@ -73,13 +77,15 @@ func NewCRDListModel(client *k8s.Client, width, height int) *CRDListModel {
 	spn.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F780E2"))
 
 	return &CRDListModel{
-		table:     t,
-		client:    client,
-		textinput: ti,
-		spinner:   spn,
-		loading:   true,
-		width:     width,
-		height:    height,
+		table:         t,
+		client:        client,
+		textinput:     ti,
+		spinner:       spn,
+		loading:       true,
+		width:         width,
+		height:        height,
+		cachedCounts:  make(map[string]map[string]int),
+		currNamespace: namespace,
 	}
 }
 
@@ -103,6 +109,7 @@ func (m *CRDListModel) renderRows() {
 		rows[i] = table.Row{
 			crd.Kind,
 			crd.Group,
+			crd.Scope,
 			countStr,
 		}
 	}
@@ -114,16 +121,48 @@ func (m *CRDListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case FetchedCRDsMsg:
 		m.loading = false
-		m.countsLoaded = false
 		m.allCRDs = msg.CRDs
 		m.filtered = msg.CRDs
+
+		// Check if we have cached counts for the current namespace
+		if counts, ok := m.cachedCounts[m.currNamespace]; ok {
+			for i, crd := range m.allCRDs {
+				if count, ok := counts[crd.Name]; ok {
+					m.allCRDs[i].Count = count
+				}
+			}
+			for i, crd := range m.filtered {
+				if count, ok := counts[crd.Name]; ok {
+					m.filtered[i].Count = count
+				}
+			}
+			m.countsLoaded = true
+			m.lastNamespace = m.currNamespace
+		} else {
+			m.countsLoaded = false
+		}
+
 		m.renderRows()
-		return m, m.FetchCRDCounts
+
+		if !m.countsLoaded || m.currNamespace != m.lastNamespace {
+			return m, m.FetchCRDCounts(m.allCRDs, m.currNamespace)
+		}
+		return m, nil
 
 	case CRDCountsMsg:
+		if msg.Namespace != m.currNamespace {
+			// Ignore counts from a different namespace (old request)
+			return m, nil
+		}
+
+		if m.cachedCounts[m.currNamespace] == nil {
+			m.cachedCounts[m.currNamespace] = make(map[string]int)
+		}
+
 		for i, crd := range m.allCRDs {
 			if count, ok := msg.Counts[crd.Name]; ok {
 				m.allCRDs[i].Count = count
+				m.cachedCounts[m.currNamespace][crd.Name] = count
 			}
 		}
 		for i, crd := range m.filtered {
@@ -132,6 +171,7 @@ func (m *CRDListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.countsLoaded = true
+		m.lastNamespace = m.currNamespace
 		m.renderRows()
 		return m, nil
 
@@ -231,7 +271,9 @@ func (m *CRDListModel) IsFiltering() bool {
 }
 
 // Refresh re-fetches the CRDs
-func (m *CRDListModel) Refresh() tea.Cmd {
+func (m *CRDListModel) Refresh(namespace string) tea.Cmd {
+	m.loading = true
+	m.currNamespace = namespace
 	return m.FetchCRDs
 }
 
@@ -245,12 +287,12 @@ type ErrorMsg struct {
 }
 
 type CRDCountsMsg struct {
-	Counts map[string]int
+	Counts    map[string]int
+	Namespace string
 }
 
 // FetchCRDs is a command to fetch CRDs from the cluster
 func (m *CRDListModel) FetchCRDs() tea.Msg {
-	m.loading = true
 	discoverySvc := m.client.Discovery()
 	crds, err := discoverySvc.ListCRDs(context.Background())
 	if err != nil {
@@ -260,18 +302,30 @@ func (m *CRDListModel) FetchCRDs() tea.Msg {
 }
 
 // FetchCRDCounts is a command to fetch counts for all CRDs (async)
-func (m *CRDListModel) FetchCRDCounts() tea.Msg {
-	dynamicSvc := m.client.Dynamic()
-	namespace := ""
-	counts := make(map[string]int)
-
-	for _, crd := range m.allCRDs {
-		count, err := dynamicSvc.CountResources(context.Background(), crd.GVR, namespace)
-		if err != nil {
-			continue
+func (m *CRDListModel) FetchCRDCounts(crds []types.CRDInfo, ns string) tea.Cmd {
+	return func() tea.Msg {
+		dynamicSvc := m.client.Dynamic()
+		namespace := ns
+		if namespace == "all-namespaces" {
+			namespace = ""
 		}
-		counts[crd.Name] = count
-	}
+		counts := make(map[string]int)
 
-	return CRDCountsMsg{Counts: counts}
+		for _, crd := range crds {
+			ns := namespace
+			if crd.Scope == "Cluster" {
+				ns = "" // Always count cluster-scoped resources globally
+			}
+			count, err := dynamicSvc.CountResources(context.Background(), crd.GVR, ns)
+			if err != nil {
+				continue
+			}
+			counts[crd.Name] = count
+		}
+
+		return CRDCountsMsg{
+			Counts:    counts,
+			Namespace: ns,
+		}
+	}
 }

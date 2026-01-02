@@ -215,7 +215,6 @@ type FetchedCRsMsg struct {
 
 // FetchCRs is a command to fetch CRs from the cluster
 func (m *CRListModel) FetchCRs() tea.Msg {
-	m.loading = true
 	dynamicSvc := m.client.Dynamic()
 	resources, err := dynamicSvc.ListResources(context.Background(), m.crd.GVR, m.namespace)
 	if err != nil {
