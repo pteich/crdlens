@@ -312,6 +312,11 @@ func (m *CRDSpecModel) IsShowingFieldDetail() bool {
 	return m.showFieldDetail
 }
 
+// HasNavigationHistory returns whether there is navigation history to go back to
+func (m *CRDSpecModel) HasNavigationHistory() bool {
+	return !m.isFlatView && len(m.navStack) > 0
+}
+
 func (m *CRDSpecModel) renderFieldDetailOverlay(baseView string) string {
 	overlayWidth := 60
 	// Ensure overlay doesn't exceed screen width

@@ -151,8 +151,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = CRListView
 					return m, nil
 				} else if m.state == CRDSpecView {
-					// Check if we are showing field details, if so let the view handle it
-					if m.crdSpec != nil && m.crdSpec.IsShowingFieldDetail() {
+					// Check if we are showing field details or have navigation history
+					if m.crdSpec != nil && (m.crdSpec.IsShowingFieldDetail() || m.crdSpec.HasNavigationHistory()) {
 						// Pass the message to the view
 						newModel, cmd := m.crdSpec.Update(msg)
 						m.crdSpec = newModel.(*views.CRDSpecModel)
