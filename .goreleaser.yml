@@ -6,7 +6,8 @@ before:
 universal_binaries:
   - replace: true
 builds:
-  - env:
+  - main: ./cmd/crdlens
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
