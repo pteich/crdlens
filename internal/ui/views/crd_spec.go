@@ -16,16 +16,33 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// NavState represents a state in the navigation stack
+type NavState struct {
+	Fields    []SchemaField
+	Cursor    int
+	TitlePath string
+}
+
 // CRDSpecModel is the model for the CRD spec view
 type CRDSpecModel struct {
-	viewport        viewport.Model
-	table           table.Model
-	client          *k8s.Client
-	crd             types.CRDInfo
-	loading         bool
-	err             error
-	spec            *apiextensionsv1.CustomResourceDefinition
-	fields          []SchemaField
+	viewport viewport.Model
+	table    table.Model
+	client   *k8s.Client
+	crd      types.CRDInfo
+	loading  bool
+	err      error
+	spec     *apiextensionsv1.CustomResourceDefinition
+
+	// Fields data
+	rootFields    []SchemaField
+	flatFields    []SchemaField
+	currentFields []SchemaField
+
+	// Navigation state
+	navStack    []NavState
+	currentPath string
+	isFlatView  bool
+
 	showTable       bool
 	showFieldDetail bool
 	selectedField   *SchemaField
@@ -38,7 +55,7 @@ func NewCRDSpecModel(client *k8s.Client, crd types.CRDInfo, width, height int) *
 	vp := viewport.New(width, height-8)
 
 	columns := []table.Column{
-		{Title: "Field Path", Width: 40},
+		{Title: "Field", Width: 40},
 		{Title: "Type", Width: 20},
 		{Title: "Required", Width: 12},
 	}
@@ -62,14 +79,15 @@ func NewCRDSpecModel(client *k8s.Client, crd types.CRDInfo, width, height int) *
 	t.SetStyles(s)
 
 	return &CRDSpecModel{
-		viewport:  vp,
-		table:     t,
-		client:    client,
-		crd:       crd,
-		width:     width,
-		height:    height,
-		loading:   true,
-		showTable: true,
+		viewport:    vp,
+		table:       t,
+		client:      client,
+		crd:         crd,
+		width:       width,
+		height:      height,
+		loading:     true,
+		showTable:   true,
+		currentPath: crd.Name,
 	}
 }
 
@@ -93,12 +111,11 @@ func (m *CRDSpecModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.viewport.SetContent(string(yamlBytes))
 
-		m.fields = ExtractCRDSchemaFields(msg.Spec)
-		rows := make([]table.Row, len(m.fields))
-		for i, field := range m.fields {
-			rows[i] = field.TableRow()
-		}
-		m.table.SetRows(rows)
+		m.rootFields = ExtractCRDSchemaFields(msg.Spec)
+		m.flatFields = FlattenSchemaFields(m.rootFields)
+		m.currentFields = m.rootFields
+
+		m.updateTableRows()
 
 		return m, nil
 
@@ -123,27 +140,72 @@ func (m *CRDSpecModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.showFieldDetail && (msg.String() == "esc" || msg.String() == "enter") {
-			m.showFieldDetail = false
-			m.selectedField = nil
+		if m.showFieldDetail {
+			if msg.String() == "esc" || msg.String() == "enter" {
+				m.showFieldDetail = false
+				m.selectedField = nil
+				return m, nil
+			}
 			return m, nil
 		}
 
-		if !m.showFieldDetail {
+		if m.showTable {
 			if msg.String() == "tab" {
 				m.showTable = !m.showTable
-				if m.showTable && len(m.fields) > 0 {
-					m.table.GotoTop()
+				return m, nil
+			}
+
+			if msg.String() == "f" {
+				m.toggleFlatView()
+				return m, nil
+			}
+
+			if msg.String() == "enter" {
+				idx := m.table.Cursor()
+				if idx >= 0 && idx < len(m.currentFields) {
+					selected := m.currentFields[idx]
+
+					// If in hierarchical view and has children, drill down
+					if !m.isFlatView && len(selected.Children) > 0 {
+						// Push state
+						m.navStack = append(m.navStack, NavState{
+							Fields:    m.currentFields,
+							Cursor:    m.table.Cursor(),
+							TitlePath: m.currentPath,
+						})
+
+						m.currentFields = selected.Children
+						m.currentPath = selected.FieldPath
+
+						m.table.SetCursor(0)
+						m.updateTableRows()
+					} else {
+						// Show detail
+						m.selectedField = &selected
+						m.showFieldDetail = true
+					}
 				}
 				return m, nil
 			}
 
-			if m.showTable && msg.String() == "enter" {
-				idx := m.table.Cursor()
-				if idx >= 0 && idx < len(m.fields) {
-					m.selectedField = &m.fields[idx]
-					m.showFieldDetail = true
+			if msg.String() == "esc" || msg.String() == "backspace" {
+				// If we have history in the stack, pop it
+				if !m.isFlatView && len(m.navStack) > 0 {
+					lastState := m.navStack[len(m.navStack)-1]
+					m.navStack = m.navStack[:len(m.navStack)-1]
+
+					m.currentFields = lastState.Fields
+					m.currentPath = lastState.TitlePath
+					m.updateTableRows()
+					m.table.SetCursor(lastState.Cursor)
+					return m, nil
 				}
+
+			}
+		} else {
+			// In YAML view
+			if msg.String() == "tab" {
+				m.showTable = !m.showTable
 				return m, nil
 			}
 		}
@@ -164,6 +226,34 @@ func (m *CRDSpecModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *CRDSpecModel) toggleFlatView() {
+	m.isFlatView = !m.isFlatView
+
+	if m.isFlatView {
+		// Switch to flat view
+		m.currentFields = m.flatFields
+		// Clear nav stack/path visual or keep it?
+		// User requested toggle. Maybe better to just show all.
+	} else {
+		// Switch back to hierarchical
+		// reset to root? or try to stay?
+		// Simplest is reset to root for now
+		m.currentFields = m.rootFields
+		m.navStack = []NavState{}
+		m.currentPath = m.crd.Name
+	}
+	m.table.SetCursor(0)
+	m.updateTableRows()
+}
+
+func (m *CRDSpecModel) updateTableRows() {
+	rows := make([]table.Row, len(m.currentFields))
+	for i, field := range m.currentFields {
+		rows[i] = field.TableRow(m.isFlatView)
+	}
+	m.table.SetRows(rows)
+}
+
 // View renders the model
 func (m *CRDSpecModel) View() string {
 	if m.loading {
@@ -177,14 +267,23 @@ func (m *CRDSpecModel) View() string {
 
 	viewMode := "YAML"
 	if m.showTable {
-		viewMode = "Table"
+		if m.isFlatView {
+			viewMode = "Table (Flat)"
+		} else {
+			viewMode = "Table (Hierarchical)"
+		}
+	}
+
+	titleText := fmt.Sprintf("CRD Spec: %s", m.crd.Name)
+	if m.showTable && !m.isFlatView && len(m.navStack) > 0 {
+		titleText = fmt.Sprintf("CRD Spec: %s", m.currentPath)
 	}
 
 	title := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#7D56F4")).
 		Padding(0, 1).
-		Render(fmt.Sprintf("CRD Spec: %s  [Tab: View Mode (%s)] [Enter: Field Details] [Esc: Close]", m.crd.Name, viewMode))
+		Render(fmt.Sprintf("%s  [Tab: View (%s)] [f: Toggle Flat] [Enter: Drill/Detail] [Esc: Back]", titleText, viewMode))
 
 	var baseView string
 	if m.showTable {
@@ -274,7 +373,7 @@ func (m *CRDSpecModel) renderFieldDetailOverlay(baseView string) string {
 		lipgloss.Center,
 		overlay,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(lipgloss.Color("#1a1a1a")), // Darken background slightly if possible, or just standard
+		lipgloss.WithWhitespaceForeground(lipgloss.Color("#1a1a1a")),
 	)
 }
 

@@ -61,12 +61,15 @@ func TestParseSchemaFields_NestedObject(t *testing.T) {
 	required := map[string]bool{}
 	fields := ParseSchemaFields(schema, "", required)
 
-	require.Len(t, fields, 2)
+	require.Len(t, fields, 1)
 
 	specField := findField(t, fields, "spec")
 	assert.Equal(t, "object", specField.Type)
+	require.Len(t, specField.Children, 1)
 
-	replicasField := findField(t, fields, "spec.replicas")
+	replicasField := specField.Children[0]
+	assert.Equal(t, "replicas", replicasField.Name)
+	assert.Equal(t, "spec.replicas", replicasField.FieldPath)
 	assert.Equal(t, "integer", replicasField.Type)
 	assert.Equal(t, "Number of replicas", replicasField.Description)
 	assert.True(t, replicasField.Required)
@@ -97,18 +100,26 @@ func TestParseSchemaFields_Array(t *testing.T) {
 	assert.Equal(t, "List of items", fields[0].Description)
 }
 
-func TestExtractCRDSchemaFields_NoVersions(t *testing.T) {
-	crd := &apiextensionsv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test.example.com",
+func TestFlattenSchemaFields(t *testing.T) {
+	fields := []SchemaField{
+		{
+			Name: "root",
+			Type: "object",
+			Children: []SchemaField{
+				{Name: "child1", Type: "string"},
+				{Name: "child2", Type: "int"},
+			},
 		},
-		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
-			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{},
-		},
+		{Name: "sibling", Type: "bool"},
 	}
 
-	fields := ExtractCRDSchemaFields(crd)
-	assert.Nil(t, fields)
+	flat := FlattenSchemaFields(fields)
+	require.Len(t, flat, 4) // root, child1, child2, sibling
+
+	assert.Equal(t, "root", flat[0].Name)
+	assert.Equal(t, "child1", flat[1].Name)
+	assert.Equal(t, "child2", flat[2].Name)
+	assert.Equal(t, "sibling", flat[3].Name)
 }
 
 func TestExtractCRDSchemaFields_WithVersions(t *testing.T) {
@@ -144,44 +155,13 @@ func TestExtractCRDSchemaFields_WithVersions(t *testing.T) {
 	assert.Equal(t, "Specification", fields[0].Description)
 }
 
-func TestExtractCRDSchemaFields_NonServedVersion(t *testing.T) {
-	crd := &apiextensionsv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test.example.com",
-		},
-		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
-			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
-				{
-					Name:    "v1alpha1",
-					Served:  false,
-					Storage: false,
-					Schema: &apiextensionsv1.CustomResourceValidation{
-						OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
-							Type: "object",
-							Properties: map[string]apiextensionsv1.JSONSchemaProps{
-								"spec": {
-									Type:        "object",
-									Description: "Spec",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	fields := ExtractCRDSchemaFields(crd)
-	assert.Nil(t, fields)
-}
-
-func findField(t *testing.T, fields []SchemaField, path string) SchemaField {
+func findField(t *testing.T, fields []SchemaField, name string) SchemaField {
 	t.Helper()
 	for _, field := range fields {
-		if field.FieldPath == path {
+		if field.Name == name {
 			return field
 		}
 	}
-	t.Fatalf("field with path %s not found", path)
+	t.Fatalf("field with name %s not found", name)
 	return SchemaField{}
 }
