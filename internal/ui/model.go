@@ -148,6 +148,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = CRDListView
 					return m, nil
 				} else if m.state == CRDetailView {
+					// Check if we have navigation history in the detail view
+					if m.crDetail != nil && m.crDetail.HasNavigationHistory() {
+						newModel, cmd := m.crDetail.Update(msg)
+						m.crDetail = newModel.(*views.CRDetailModel)
+						return m, cmd
+					}
 					m.state = CRListView
 					return m, nil
 				} else if m.state == CRDSpecView {

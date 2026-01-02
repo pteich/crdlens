@@ -33,8 +33,23 @@ func TestCRDetailModel_Update_FetchedEvents(t *testing.T) {
 	_, cmd := m.Update(msg)
 
 	assert.Nil(t, cmd)
-	assert.Equal(t, 1, len(m.table.Rows()))
-	assert.Equal(t, "Normal", m.table.Rows()[0][0])
+	assert.Equal(t, 1, len(m.eventTable.Rows()))
+	assert.Equal(t, "Normal", m.eventTable.Rows()[0][0])
+}
+
+func TestCRDetailModel_Update_ParsedFields(t *testing.T) {
+	m := NewCRDetailModel(nil, types.Resource{}, 100, 100)
+
+	fields := []ValueField{
+		{Name: "foo", Value: "bar"},
+	}
+
+	msg := ParsedFieldsMsg{Fields: fields}
+	_, cmd := m.Update(msg)
+
+	assert.Nil(t, cmd)
+	assert.Equal(t, 1, len(m.fieldTable.Rows()))
+	assert.Equal(t, "foo", m.fieldTable.Rows()[0][0])
 }
 
 func TestCRDetailModel_FormatYAML(t *testing.T) {
