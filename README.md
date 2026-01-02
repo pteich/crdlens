@@ -12,8 +12,38 @@ CRDLens is a terminal-based explorer for Kubernetes Custom Resource Definitions 
 
 ## Installation
 
+Download a pre-compiled binary for your operating system from here: https://github.com/pteich/crdlens/releases
+You need just this binary. It works on OSX (Darwin), Linux and Windows.
+
+There are also prebuilt RPM, DEB and APK packages for your Linux distribution.
+
+### Brew
+
+Use Brew to install:
+```shell
+brew tap pteich/tap
+brew install crdlens
+```
+
+### Go install
+
+You need a local Go installation to use this method.
+
+```shell
+go install github.com/pteich/crdlens/cmd/crdlens@latest
+```
+
+### Docker
+
+A Docker image is available here: https://github.com/pteich/crdlens/pkgs/container/crdlens
+It can be used just like the locally installed binary: 
+
+```shell
+docker run ghcr.io/pteich/crdlens:latest -h
+```
+
 ### Prerequisites
-- Go 1.21 or higher
+- Go 1.25 or higher
 - A running Kubernetes cluster and `kubectl` configured
 
 ### Build from source
