@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
@@ -13,6 +14,32 @@ import (
 	"github.com/pteich/crdlens/internal/search"
 	"github.com/pteich/crdlens/internal/types"
 )
+
+// SortMode defines how resources are sorted
+type SortMode int
+
+const (
+	SortByName SortMode = iota
+	SortByDrift
+	SortByCreated
+	SortByStatus
+)
+
+// String returns a human-readable sort mode name
+func (s SortMode) String() string {
+	switch s {
+	case SortByName:
+		return "Name"
+	case SortByDrift:
+		return "Drift"
+	case SortByCreated:
+		return "Created"
+	case SortByStatus:
+		return "Status"
+	default:
+		return "Unknown"
+	}
+}
 
 // CRListModel is the model for the CR list view
 type CRListModel struct {
@@ -29,14 +56,25 @@ type CRListModel struct {
 	textinput    textinput.Model
 	filtering    bool
 	spinner      spinner.Model
+
+	// New: Sorting and pagination
+	sortMode      SortMode
+	sortAsc       bool
+	showSortMenu  bool
+	continueToken string
+	hasMorePages  bool
+	totalShown    int
 }
 
 // NewCRListModel creates a new CR list model
 func NewCRListModel(client *k8s.Client, crd types.CRDInfo, namespace string, width, height int) *CRListModel {
 	columns := []table.Column{
-		{Title: "Name", Width: 40},
-		{Title: "Namespace", Width: 30},
-		{Title: "Age", Width: 15},
+		{Title: "R", Width: 2},        // Ready icon
+		{Title: "Name", Width: 40},    // Resource name (wider)
+		{Title: "NS", Width: 20},      // Namespace
+		{Title: "Drift", Width: 5},    // Generation drift
+		{Title: "Ctrl", Width: 15},    // Controller manager (wider)
+		{Title: "Created", Width: 16}, // Creation date
 	}
 
 	t := table.New(
@@ -75,6 +113,8 @@ func NewCRListModel(client *k8s.Client, crd types.CRDInfo, namespace string, wid
 		textinput: ti,
 		spinner:   spn,
 		loading:   true,
+		sortMode:  SortByName,
+		sortAsc:   true,
 	}
 }
 
@@ -88,17 +128,23 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case FetchedCRsMsg:
 		m.loading = false
-		rows := make([]table.Row, len(msg.Resources))
-		for i, res := range msg.Resources {
-			rows[i] = table.Row{
-				res.Name,
-				res.Namespace,
-				res.Age.String(),
-			}
-		}
-		m.table.SetRows(rows)
 		m.allResources = msg.Resources
-		m.filtered = msg.Resources
+		m.continueToken = msg.ContinueToken
+		m.hasMorePages = msg.ContinueToken != ""
+		m.totalShown = len(msg.Resources)
+		m.filtered = m.allResources
+		m.sortResources()
+		m.updateTableRows()
+		return m, nil
+
+	case FetchedMoreCRsMsg:
+		m.allResources = append(m.allResources, msg.Resources...)
+		m.continueToken = msg.ContinueToken
+		m.hasMorePages = msg.ContinueToken != ""
+		m.totalShown = len(m.allResources)
+		m.filtered = search.MatchResources(m.textinput.Value(), m.allResources)
+		m.sortResources()
+		m.updateTableRows()
 		return m, nil
 
 	case ErrorMsg:
@@ -113,6 +159,43 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Handle sort menu
+		if m.showSortMenu {
+			switch msg.String() {
+			case "1":
+				m.sortMode = SortByDrift
+				m.sortAsc = false // Highest drift first
+				m.showSortMenu = false
+				m.sortResources()
+				m.updateTableRows()
+				return m, nil
+			case "2":
+				m.sortMode = SortByCreated
+				m.sortAsc = false // Newest first
+				m.showSortMenu = false
+				m.sortResources()
+				m.updateTableRows()
+				return m, nil
+			case "3":
+				m.sortMode = SortByStatus
+				m.sortAsc = true
+				m.showSortMenu = false
+				m.sortResources()
+				m.updateTableRows()
+				return m, nil
+			case "4":
+				m.sortMode = SortByName
+				m.sortAsc = true
+				m.showSortMenu = false
+				m.sortResources()
+				m.updateTableRows()
+				return m, nil
+			case "esc":
+				m.showSortMenu = false
+				return m, nil
+			}
+		}
+
 		if m.filtering {
 			switch msg.String() {
 			case "esc", "enter":
@@ -126,6 +209,15 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filtering = true
 				m.textinput.Focus()
 				return m, tea.Batch(textinput.Blink)
+			case "s":
+				m.showSortMenu = !m.showSortMenu
+				return m, nil
+			case "right":
+				// Load next page with right arrow
+				if m.hasMorePages {
+					return m, m.FetchMoreCRs
+				}
+				return m, nil
 			}
 		}
 	}
@@ -136,15 +228,8 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Filter resources based on query
 		m.filtered = search.MatchResources(m.textinput.Value(), m.allResources)
-		rows := make([]table.Row, len(m.filtered))
-		for i, res := range m.filtered {
-			rows[i] = table.Row{
-				res.Name,
-				res.Namespace,
-				res.Age.String(),
-			}
-		}
-		m.table.SetRows(rows)
+		m.sortResources()
+		m.updateTableRows()
 		return m, cmd
 	}
 
@@ -154,6 +239,71 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	return m, tea.Batch(cmd, sCmd)
+}
+
+// sortResources sorts the filtered resources based on current sort mode
+func (m *CRListModel) sortResources() {
+	sort.Slice(m.filtered, func(i, j int) bool {
+		var less bool
+		switch m.sortMode {
+		case SortByDrift:
+			less = m.filtered[i].Drift() < m.filtered[j].Drift()
+		case SortByCreated:
+			less = m.filtered[i].CreatedAt.Before(m.filtered[j].CreatedAt)
+		case SortByStatus:
+			less = m.filtered[i].ReadyStatus() < m.filtered[j].ReadyStatus()
+		default: // SortByName
+			less = m.filtered[i].Name < m.filtered[j].Name
+		}
+		if m.sortAsc {
+			return less
+		}
+		return !less
+	})
+}
+
+// updateTableRows updates the table with current filtered/sorted resources
+func (m *CRListModel) updateTableRows() {
+	rows := make([]table.Row, len(m.filtered))
+	for i, res := range m.filtered {
+		rows[i] = m.resourceToRow(res)
+	}
+	m.table.SetRows(rows)
+}
+
+// resourceToRow converts a Resource to a table row with controller-aware columns
+func (m *CRListModel) resourceToRow(res types.Resource) table.Row {
+	// Format drift
+	drift := "-"
+	if res.Generation > 0 {
+		d := res.Drift()
+		if d > 0 {
+			drift = fmt.Sprintf("+%d", d)
+		} else {
+			drift = "0"
+		}
+	}
+
+	// Shorten namespace
+	ns := res.Namespace
+	if len(ns) > 15 {
+		ns = ns[:12] + "..."
+	}
+
+	// Shorten controller manager
+	ctrl := k8s.ShortenManagerName(res.ControllerManager)
+
+	// Format created date
+	created := res.CreatedAt.Format("2006-01-02 15:04")
+
+	return table.Row{
+		res.ReadyIcon(),
+		res.Name,
+		ns,
+		drift,
+		ctrl,
+		created,
+	}
 }
 
 // SelectedResource returns the currently selected resource
@@ -174,17 +324,33 @@ func (m *CRListModel) View() string {
 		return fmt.Sprintf("Error fetching CRs: %v", m.err)
 	}
 
+	// Title with count and sort info
+	countInfo := fmt.Sprintf("%d", len(m.filtered))
+	if m.hasMorePages {
+		countInfo += "+"
+	}
+
 	title := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#7D56F4")).
 		Padding(0, 1).
-		Render(fmt.Sprintf("Resources: %s", m.crd.Kind))
+		Render(fmt.Sprintf("%s (%s) [Sort: %s]", m.crd.Kind, countInfo, m.sortMode.String()))
 
 	view := lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"\n",
 		m.table.View(),
 	)
+
+	// Show sort menu if active
+	if m.showSortMenu {
+		sortMenu := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("240")).
+			Padding(0, 1).
+			Render("Sort by:\n1) Drift ↓\n2) Created ↓\n3) Status\n4) Name\n[Esc] Cancel")
+		view = lipgloss.JoinVertical(lipgloss.Left, view, "\n", sortMenu)
+	}
 
 	if m.filtering {
 		view = lipgloss.JoinVertical(lipgloss.Left,
@@ -194,12 +360,19 @@ func (m *CRListModel) View() string {
 		)
 	}
 
+	// Footer with keybindings
+	footer := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("241")).
+		Render("[/] Search  [s] Sort  [→] More  [Enter] Details  [Esc] Back")
+	view = lipgloss.JoinVertical(lipgloss.Left, view, "\n", footer)
+
 	return view
 }
 
 // Refresh re-fetches the resources
 func (m *CRListModel) Refresh(namespace string) tea.Cmd {
 	m.namespace = namespace
+	m.continueToken = "" // Reset pagination
 	return m.FetchCRs
 }
 
@@ -210,15 +383,47 @@ func (m *CRListModel) IsFiltering() bool {
 
 // FetchedCRsMsg is sent when CRs are successfully fetched
 type FetchedCRsMsg struct {
-	Resources []types.Resource
+	Resources     []types.Resource
+	ContinueToken string
+}
+
+// FetchedMoreCRsMsg is sent when additional CRs are fetched (pagination)
+type FetchedMoreCRsMsg struct {
+	Resources     []types.Resource
+	ContinueToken string
 }
 
 // FetchCRs is a command to fetch CRs from the cluster
 func (m *CRListModel) FetchCRs() tea.Msg {
 	dynamicSvc := m.client.Dynamic()
-	resources, err := dynamicSvc.ListResources(context.Background(), m.crd.GVR, m.namespace)
+	result, err := dynamicSvc.ListResourcesPaginated(context.Background(), m.crd.GVR, m.namespace, k8s.ListResourcesOptions{
+		Limit: 100,
+	})
 	if err != nil {
 		return ErrorMsg{Err: err}
 	}
-	return FetchedCRsMsg{Resources: resources}
+	return FetchedCRsMsg{
+		Resources:     result.Resources,
+		ContinueToken: result.ContinueToken,
+	}
+}
+
+// FetchMoreCRs fetches the next page of resources
+func (m *CRListModel) FetchMoreCRs() tea.Msg {
+	if m.continueToken == "" {
+		return nil
+	}
+
+	dynamicSvc := m.client.Dynamic()
+	result, err := dynamicSvc.ListResourcesPaginated(context.Background(), m.crd.GVR, m.namespace, k8s.ListResourcesOptions{
+		Limit:    100,
+		Continue: m.continueToken,
+	})
+	if err != nil {
+		return ErrorMsg{Err: err}
+	}
+	return FetchedMoreCRsMsg{
+		Resources:     result.Resources,
+		ContinueToken: result.ContinueToken,
+	}
 }

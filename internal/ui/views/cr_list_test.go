@@ -11,11 +11,13 @@ import (
 func TestCRListModel_Update_FetchedCRs(t *testing.T) {
 	m := NewCRListModel(nil, types.CRDInfo{Kind: "TestKind"}, "default", 100, 100)
 
+	now := time.Now()
 	resources := []types.Resource{
 		{
 			Name:      "test-1",
 			Namespace: "default",
 			Age:       10 * time.Minute,
+			CreatedAt: now,
 		},
 	}
 
@@ -25,6 +27,8 @@ func TestCRListModel_Update_FetchedCRs(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.False(t, m.loading)
 	assert.Equal(t, 1, len(m.table.Rows()))
-	assert.Equal(t, "test-1", m.table.Rows()[0][0])
-	assert.Equal(t, "default", m.table.Rows()[0][1])
+	// New column structure: [0]=R (Ready Icon), [1]=Name, [2]=NS, [3]=Drift, [4]=Ctrl, [5]=Created
+	assert.Equal(t, "❔", m.table.Rows()[0][0])       // Ready icon (unknown - no conditions)
+	assert.Equal(t, "test-1", m.table.Rows()[0][1])  // Name
+	assert.Equal(t, "default", m.table.Rows()[0][2]) // Namespace
 }
