@@ -24,9 +24,6 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
-      - name: Download dependencies
-        run:  go env -w GOPROXY="https://proxy.golang.org,direct" && rm -f go.sum && go mod tidy
-
       - name: Build
         run: go build -o crdlens ./cmd/crdlens
 
