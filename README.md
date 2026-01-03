@@ -69,6 +69,16 @@ Simply run `crdlens` in your terminal. It will use your current kubeconfig conte
 crdlens
 ```
 
+### CLI Flags
+
+| Flag | Description |
+| --- | --- |
+| `--kubeconfig` | Path to the kubeconfig file |
+| `--context` | The name of the kubeconfig context to use |
+| `--namespace` | The namespace to use |
+| `--all-namespaces` | List resources in all namespaces |
+| `--enable-counts` | Enable CR counts in the CRD list (disabled by default) |
+
 ### Keybindings
 
 | Key | Action |
