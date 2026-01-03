@@ -14,6 +14,7 @@ type Config struct {
 	Theme           ThemeConfig       `yaml:"theme"`
 	Keybindings     KeybindingsConfig `yaml:"keybindings"`
 	CacheSize       int               `yaml:"cacheSize"`
+	DisableCounts   bool              `yaml:"disableCounts"`
 }
 
 // ThemeConfig defines the appearance of the TUI
@@ -38,6 +39,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		RefreshInterval: 30 * time.Second,
 		CacheSize:       1000,
+		DisableCounts:   true,
 		Theme: ThemeConfig{
 			Primary:   "#7D56F4",
 			Secondary: "#F780E2",

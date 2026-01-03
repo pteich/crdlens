@@ -29,6 +29,7 @@ func Load() (*Config, error) {
 	context := flag.String("context", "", "the name of the kubeconfig context to use")
 	namespace := flag.String("namespace", "", "the namespace to use")
 	allNamespaces := flag.Bool("all-namespaces", cfg.AllNamespaces, "list resources in all namespaces")
+	enableCounts := flag.Bool("enable-counts", !cfg.DisableCounts, "enable CR counts in the CRD list")
 
 	flag.Parse()
 
@@ -44,6 +45,9 @@ func Load() (*Config, error) {
 	}
 	if *allNamespaces {
 		cfg.AllNamespaces = true
+	}
+	if *enableCounts {
+		cfg.DisableCounts = false
 	}
 
 	return cfg, nil

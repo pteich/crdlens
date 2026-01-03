@@ -38,6 +38,7 @@ func TestModel_Reproduction(t *testing.T) {
 
 	// Test state transition (simulated)
 	m.state = CRListView
+	m.crdList = views.NewCRDListModel(client, "default", 100, 50, false)
 	m.crList = views.NewCRListModel(client, types.CRDInfo{Kind: "Test"}, "default", 100, 50)
 	view = m.View()
 	assert.Contains(t, view, "Loading Custom Resources...")

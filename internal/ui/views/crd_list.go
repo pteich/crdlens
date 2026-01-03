@@ -3,12 +3,14 @@ package views
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/pteich/crdlens/internal/k8s"
 	"github.com/pteich/crdlens/internal/search"
 	"github.com/pteich/crdlens/internal/types"
@@ -39,10 +41,11 @@ type CRDListModel struct {
 	cachedCounts  map[string]map[string]int // namespace -> crdName -> count
 	lastNamespace string
 	currNamespace string
+	disableCounts bool
 }
 
 // NewCRDListModel creates a new CRD list model
-func NewCRDListModel(client *k8s.Client, namespace string, width, height int) *CRDListModel {
+func NewCRDListModel(client *k8s.Client, namespace string, width, height int, disableCounts bool) *CRDListModel {
 	columns := []table.Column{
 		{Title: "Name", Width: 40},
 		{Title: "API Group", Width: 40},
@@ -86,6 +89,7 @@ func NewCRDListModel(client *k8s.Client, namespace string, width, height int) *C
 		height:        height,
 		cachedCounts:  make(map[string]map[string]int),
 		currNamespace: namespace,
+		disableCounts: disableCounts,
 	}
 }
 
@@ -103,7 +107,9 @@ func (m *CRDListModel) renderRows() {
 
 	for i, crd := range m.filtered {
 		countStr := spinnerChar
-		if m.countsLoaded {
+		if m.disableCounts {
+			countStr = "n/a"
+		} else if m.countsLoaded {
 			countStr = fmt.Sprintf("%d", crd.Count)
 		}
 		rows[i] = table.Row{
@@ -123,6 +129,11 @@ func (m *CRDListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.allCRDs = msg.CRDs
 		m.filtered = msg.CRDs
+
+		if m.disableCounts {
+			m.renderRows()
+			return m, nil
+		}
 
 		// Check if we have cached counts for the current namespace
 		if counts, ok := m.cachedCounts[m.currNamespace]; ok {
@@ -311,17 +322,37 @@ func (m *CRDListModel) FetchCRDCounts(crds []types.CRDInfo, ns string) tea.Cmd {
 		}
 		counts := make(map[string]int)
 
-		for _, crd := range crds {
-			ns := namespace
-			if crd.Scope == "Cluster" {
-				ns = "" // Always count cluster-scoped resources globally
-			}
-			count, err := dynamicSvc.CountResources(context.Background(), crd.GVR, ns)
-			if err != nil {
-				continue
-			}
-			counts[crd.Name] = count
+		wg := sync.WaitGroup{}
+		crdsChan := make(chan types.CRDInfo)
+		mu := sync.Mutex{}
+
+		for i := 0; i < 3; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for crd := range crdsChan {
+					ns := namespace
+					if crd.Scope == "Cluster" {
+						ns = "" // Always count cluster-scoped resources globally
+					}
+					count, err := dynamicSvc.CountResources(context.Background(), crd.GVR, ns)
+					if err != nil {
+						continue
+					}
+
+					mu.Lock()
+					counts[crd.Name] = count
+					mu.Unlock()
+				}
+			}()
 		}
+
+		for _, crd := range crds {
+			crdsChan <- crd
+		}
+		close(crdsChan)
+
+		wg.Wait()
 
 		return CRDCountsMsg{
 			Counts:    counts,

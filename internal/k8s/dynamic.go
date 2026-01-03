@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pteich/crdlens/internal/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+
+	"github.com/pteich/crdlens/internal/types"
 )
 
 const (
@@ -138,8 +139,10 @@ func (s *DynamicService) CountResources(ctx context.Context, gvr schema.GroupVer
 		return int(*remaining) + len(res.Items), nil
 	}
 
-	// Fallback: no pagination info, need to count all
-	allRes, err := s.client.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	// Fallback: no pagination info, need to count all but only fetch metadata
+	allRes, err := s.client.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
+		ResourceVersion: "0", // Prefer returning from cache if possible
+	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to count %s: %w", gvr.Resource, err)
 	}

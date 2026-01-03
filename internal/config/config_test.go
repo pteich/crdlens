@@ -15,6 +15,7 @@ func TestDefaultConfig(t *testing.T) {
 
 	assert.NotZero(t, cfg.RefreshInterval, "refresh interval should be set")
 	assert.Equal(t, 1000, cfg.CacheSize)
+	assert.True(t, cfg.DisableCounts)
 	assert.Equal(t, "#7D56F4", cfg.Theme.Primary)
 	assert.Equal(t, "q", cfg.Keybindings.Quit)
 }

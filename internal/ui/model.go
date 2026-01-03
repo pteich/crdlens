@@ -196,7 +196,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.config.AllNamespaces {
 				ns = "all-namespaces"
 			}
-			m.crdList = views.NewCRDListModel(m.client, ns, m.width, m.height)
+			m.crdList = views.NewCRDListModel(m.client, ns, m.width, m.height, m.config.DisableCounts)
 			cmds = append(cmds, m.crdList.Init())
 		} else {
 			if m.crdList != nil {
