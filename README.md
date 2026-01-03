@@ -6,8 +6,9 @@ CRDLens is a terminal-based explorer for Kubernetes Custom Resource Definitions 
 
 - **CRD Discovery**: List all valid CRDs in your cluster with resource counts.
 - **Hierarchical Schema Explorer**: Drill down into complex CRD schemas (OpenAPI v3) with a tree-based view.
-- **Resource Management**: Browse Custom Resources for any CRD with fuzzy filtering.
-- **Deep Inspection**: View resource details including YAML configuration, Events, and a structured Fields view for exploring deeply nested data.
+- **Resource Management**: Browse Custom Resources for any CRD with fuzzy filtering and pagination for large lists.
+- **Deep Inspection**: View resource details including YAML configuration, Events, and a structured Fields view.
+- **Controller Awareness**: Monitor CR health with Ready indicators, Drift detection, and a dedicated **Reconcile Status** view showing live Lag and Silence tracking.
 - **Namespace Awareness**: Easily switch between namespaces or view resources across all namespaces.
 
 ## Installation
@@ -72,8 +73,11 @@ crdlens
 | `/` | Filter / Search |
 | `n` | Switch Namespace |
 | `r` | Refresh list |
+| `s` | Open Sort menu (in CR List) |
+| `1-4` | Quick sort by Status, Name, Drift, or Age |
+| `→` | Next page (for large CR lists) |
 | `f` | Toggle Flat/Hierarchical view (in CRD Spec) |
-| `Tab` | Switch Views (e.g., Table, YAML, Events) |
+| `Tab` | Switch Views (YAML, Fields, Events, **Reconcile Status**) |
 | `q` / `Ctrl+C` | Quit |
 
 ## Screenshots
@@ -83,4 +87,5 @@ crdlens
 ![CRD Field Description](screenshots/crd-field-description.png)
 ![Namespace Switcher](screenshots/ns-switcher.png)
 ![CR List](screenshots/cr-list.png)
+![CR Reconcile](screenshots/cr-reconcile.png)
 ![CR Field Values](screenshots/cr-field-values.png)
