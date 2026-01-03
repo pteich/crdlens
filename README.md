@@ -20,11 +20,17 @@ There are also prebuilt RPM, DEB and APK packages for your Linux distribution.
 
 ### Brew
 
-Use Brew to install:
+Use Brew to install either with tap:
 ```shell
 brew tap pteich/tap
 brew install crdlens
 ```
+
+or directly:
+```shell
+brew install pteich/tap/crdlens
+```
+
 
 ### Go install
 
