@@ -172,7 +172,7 @@ func TestExtractControllerInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, lastWrite := ExtractControllerInfo(tt.managedFields)
+			manager, lastWrite, _ := ExtractControllerInfo(tt.managedFields)
 			if manager != tt.expectedManager {
 				t.Errorf("ExtractControllerInfo() manager = %s, want %s", manager, tt.expectedManager)
 			}
@@ -180,6 +180,27 @@ func TestExtractControllerInfo(t *testing.T) {
 				t.Error("ExtractControllerInfo() returned zero time, expected non-zero")
 			}
 		})
+	}
+}
+
+func TestExtractControllerInfoSpec(t *testing.T) {
+	now := time.Now()
+	managedFields := []metav1.ManagedFieldsEntry{
+		{
+			Manager: "kubectl",
+			Time:    &metav1.Time{Time: now},
+			FieldsV1: &metav1.FieldsV1{
+				Raw: []byte(`{"f:spec": {"f:replicas": {}}}`),
+			},
+		},
+	}
+
+	_, _, specWrite := ExtractControllerInfo(managedFields)
+	if specWrite.IsZero() {
+		t.Error("ExtractControllerInfo() returned zero spec write time, expected non-zero")
+	}
+	if !specWrite.Equal(now) {
+		t.Errorf("ExtractControllerInfo() spec write time = %v, want %v", specWrite, now)
 	}
 }
 

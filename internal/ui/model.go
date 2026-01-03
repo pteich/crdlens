@@ -101,53 +101,67 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nsPicker = views.NewNSPickerModel(m.client, m.width, m.height)
 				return m, m.nsPicker.Init()
 			case "r":
-				if m.state == CRDListView && m.crdList != nil {
-					ns := m.client.Namespace
-					if m.config.AllNamespaces {
-						ns = "all-namespaces"
+				switch m.state {
+				case CRDListView:
+					if m.crdList != nil {
+						ns := m.client.Namespace
+						if m.config.AllNamespaces {
+							ns = "all-namespaces"
+						}
+						return m, m.crdList.Refresh(ns)
 					}
-					return m, m.crdList.Refresh(ns)
-				} else if m.state == CRListView && m.crList != nil {
-					ns := m.client.Namespace
-					if m.config.AllNamespaces {
-						ns = ""
-					}
-					return m, m.crList.Refresh(ns)
-				}
-			case "enter":
-				if m.state == CRDListView && m.crdList != nil && !m.crdList.IsFiltering() {
-					selected := m.crdList.SelectedCRD()
-					if selected.Name != "" {
-						m.state = CRListView
+				case CRListView:
+					if m.crList != nil {
 						ns := m.client.Namespace
 						if m.config.AllNamespaces {
 							ns = ""
 						}
-						m.crList = views.NewCRListModel(m.client, selected, ns, m.width, m.height)
-						return m, m.crList.Init()
+						return m, m.crList.Refresh(ns)
 					}
-				} else if m.state == CRListView && m.crList != nil {
-					selected := m.crList.SelectedResource()
-					if selected.Name != "" {
-						m.state = CRDetailView
-						m.crDetail = views.NewCRDetailModel(m.client, selected, m.width, m.height)
-						return m, m.crDetail.Init()
+				}
+			case "enter":
+				switch m.state {
+				case CRDListView:
+					if m.crdList != nil && !m.crdList.IsFiltering() {
+						selected := m.crdList.SelectedCRD()
+						if selected.Name != "" {
+							m.state = CRListView
+							ns := m.client.Namespace
+							if m.config.AllNamespaces {
+								ns = ""
+							}
+							m.crList = views.NewCRListModel(m.client, selected, ns, m.width, m.height)
+							return m, m.crList.Init()
+						}
+					}
+				case CRListView:
+					if m.crList != nil {
+						selected := m.crList.SelectedResource()
+						if selected.Name != "" {
+							m.state = CRDetailView
+							m.crDetail = views.NewCRDetailModel(m.client, selected, m.width, m.height)
+							return m, m.crDetail.Init()
+						}
 					}
 				}
 			case "s":
-				if m.state == CRDListView && m.crdList != nil && !m.crdList.IsFiltering() {
-					selected := m.crdList.SelectedCRD()
-					if selected.Name != "" {
-						m.state = CRDSpecView
-						m.crdSpec = views.NewCRDSpecModel(m.client, selected, m.width, m.height)
-						return m, m.crdSpec.Init()
+				switch m.state {
+				case CRDListView:
+					if m.crdList != nil && !m.crdList.IsFiltering() {
+						selected := m.crdList.SelectedCRD()
+						if selected.Name != "" {
+							m.state = CRDSpecView
+							m.crdSpec = views.NewCRDSpecModel(m.client, selected, m.width, m.height)
+							return m, m.crdSpec.Init()
+						}
 					}
 				}
 			case "esc":
-				if m.state == CRListView {
+				switch m.state {
+				case CRListView:
 					m.state = CRDListView
 					return m, nil
-				} else if m.state == CRDetailView {
+				case CRDetailView:
 					// Check if we have navigation history in the detail view
 					if m.crDetail != nil && m.crDetail.HasNavigationHistory() {
 						newModel, cmd := m.crDetail.Update(msg)
@@ -156,7 +170,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.state = CRListView
 					return m, nil
-				} else if m.state == CRDSpecView {
+				case CRDSpecView:
 					// Check if we are showing field details or have navigation history
 					if m.crdSpec != nil && (m.crdSpec.IsShowingFieldDetail() || m.crdSpec.HasNavigationHistory()) {
 						// Pass the message to the view

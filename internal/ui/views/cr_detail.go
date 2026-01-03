@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -20,6 +21,7 @@ const (
 	DetailViewYAML DetailViewMode = iota
 	DetailViewFields
 	DetailViewEvents
+	DetailViewReconcile
 )
 
 func (m DetailViewMode) String() string {
@@ -30,6 +32,8 @@ func (m DetailViewMode) String() string {
 		return "Fields"
 	case DetailViewEvents:
 		return "Events"
+	case DetailViewReconcile:
+		return "Reconcile Status"
 	default:
 		return "Unknown"
 	}
@@ -49,6 +53,7 @@ type CRDetailModel struct {
 	height     int
 	activeView DetailViewMode
 
+	reconcileTable table.Model
 	// Fields data
 	rootFields    []ValueField
 	currentFields []ValueField
@@ -115,6 +120,45 @@ func NewCRDetailModel(client *k8s.Client, resource types.Resource, width, height
 	}
 }
 
+func (m *CRDetailModel) initReconcileTable() {
+	columns := []table.Column{
+		{Title: "Type", Width: 20},
+		{Title: "Status", Width: 10},
+		{Title: "Reason", Width: 20},
+		{Title: "Age", Width: 15},
+		{Title: "Message", Width: 40},
+	}
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithFocused(true),
+		table.WithHeight(m.height-15), // More space for header/stats
+	)
+	s := table.DefaultStyles()
+	s.Header = s.Header.BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("240")).BorderBottom(true).Bold(false)
+	s.Selected = s.Selected.Foreground(lipgloss.Color("229")).Background(lipgloss.Color("57")).Bold(false)
+	t.SetStyles(s)
+	m.reconcileTable = t
+	m.updateReconcileTableRows()
+}
+
+func (m *CRDetailModel) updateReconcileTableRows() {
+	rows := make([]table.Row, len(m.resource.Conditions))
+	for i, cond := range m.resource.Conditions {
+		age := "-"
+		if !cond.LastTransitionTime.IsZero() {
+			age = time.Since(cond.LastTransitionTime).Round(time.Second).String()
+		}
+		rows[i] = table.Row{
+			cond.Type,
+			cond.Status,
+			cond.Reason,
+			age,
+			cond.Message,
+		}
+	}
+	m.reconcileTable.SetRows(rows)
+}
+
 // Init initializes the model
 func (m *CRDetailModel) Init() tea.Cmd {
 	return tea.Batch(
@@ -161,7 +205,10 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":
-			m.activeView = (m.activeView + 1) % 3
+			m.activeView = (m.activeView + 1) % 4
+			if m.activeView == DetailViewReconcile && m.reconcileTable.Rows() == nil {
+				m.initReconcileTable()
+			}
 			return m, nil
 
 		case "esc", "backspace":
@@ -206,6 +253,7 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Height = msg.Height - 8
 		m.eventTable.SetHeight(msg.Height - 10)
 		m.fieldTable.SetHeight(msg.Height - 10)
+		m.reconcileTable.SetHeight(msg.Height - 15)
 	}
 
 	// Update active view component
@@ -221,6 +269,10 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DetailViewFields:
 		var cmd tea.Cmd
 		m.fieldTable, cmd = m.fieldTable.Update(msg)
+		cmds = append(cmds, cmd)
+	case DetailViewReconcile:
+		var cmd tea.Cmd
+		m.reconcileTable, cmd = m.reconcileTable.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -256,12 +308,40 @@ func (m *CRDetailModel) View() string {
 		content = m.eventTable.View()
 	case DetailViewFields:
 		content = m.fieldTable.View()
+	case DetailViewReconcile:
+		content = m.renderReconcileView()
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		"\n",
 		content,
+	)
+}
+
+func (m *CRDetailModel) renderReconcileView() string {
+	res := m.resource
+
+	// Summary Info
+	driftText := fmt.Sprintf("Drift: %d (Gen: %d / Obs: %d)", res.Drift(), res.Generation, res.ObservedGeneration)
+	lagText := fmt.Sprintf("Lag: %v", res.Lag().Round(time.Second))
+	silenceText := fmt.Sprintf("Silence: %v", res.Silence().Round(time.Second))
+	controllerText := fmt.Sprintf("Controller: %s", res.ControllerManager)
+
+	summaryStyle := lipgloss.NewStyle().Margin(0, 0, 1, 0)
+	infoLine := lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Render(driftText),
+		"  ",
+		lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render(lagText),
+		"  ",
+		lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Render(silenceText),
+		"  ",
+		lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(controllerText),
+	)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		summaryStyle.Render(infoLine),
+		m.reconcileTable.View(),
 	)
 }
 

@@ -65,6 +65,33 @@ type Resource struct {
 	Conditions         []Condition // status.conditions[]
 	ControllerManager  string      // Primary controller from managedFields
 	LastStatusWrite    time.Time   // Last time status was written (from managedFields)
+	SpecWriteTime      time.Time   // Last time spec was written (from managedFields)
+}
+
+// Lag returns the reconciliation lag
+func (r Resource) Lag() time.Duration {
+	if r.SpecWriteTime.IsZero() {
+		return 0
+	}
+
+	if r.IsReconciling() {
+		return time.Since(r.SpecWriteTime)
+	}
+
+	// If finished, lag is time between spec change and status update
+	if !r.LastStatusWrite.IsZero() && r.LastStatusWrite.After(r.SpecWriteTime) {
+		return r.LastStatusWrite.Sub(r.SpecWriteTime)
+	}
+
+	return 0
+}
+
+// Silence returns the time since the last status update
+func (r Resource) Silence() time.Duration {
+	if r.LastStatusWrite.IsZero() {
+		return time.Since(r.CreatedAt)
+	}
+	return time.Since(r.LastStatusWrite)
 }
 
 // Drift returns the difference between generation and observed generation

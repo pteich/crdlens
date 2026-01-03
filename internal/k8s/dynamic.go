@@ -154,7 +154,7 @@ func (s *DynamicService) itemToResource(item unstructured.Unstructured, gvr sche
 	// Extract controller-aware information
 	observedGen := ExtractObservedGeneration(&item)
 	conditions := ExtractConditions(&item)
-	controllerManager, lastStatusWrite := ExtractControllerInfo(item.GetManagedFields())
+	controllerManager, lastStatusWrite, lastSpecWrite := ExtractControllerInfo(item.GetManagedFields())
 
 	return types.Resource{
 		// Basic metadata
@@ -173,5 +173,6 @@ func (s *DynamicService) itemToResource(item unstructured.Unstructured, gvr sche
 		Conditions:         conditions,
 		ControllerManager:  controllerManager,
 		LastStatusWrite:    lastStatusWrite,
+		SpecWriteTime:      lastSpecWrite,
 	}
 }

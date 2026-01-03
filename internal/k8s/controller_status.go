@@ -59,12 +59,9 @@ func ExtractConditions(obj *unstructured.Unstructured) []types.Condition {
 	return conditions
 }
 
-// ExtractControllerInfo extracts controller manager name and last status write time
-// from the object's managedFields metadata
-func ExtractControllerInfo(managedFields []metav1.ManagedFieldsEntry) (manager string, lastWrite time.Time) {
-	var latestStatusWrite time.Time
-	var statusManager string
-
+// ExtractControllerInfo extracts controller manager name, last status write time
+// and last spec write time from the object's managedFields metadata
+func ExtractControllerInfo(managedFields []metav1.ManagedFieldsEntry) (manager string, lastStatusWrite, lastSpecWrite time.Time) {
 	for _, mf := range managedFields {
 		// Skip entries without timestamps
 		if mf.Time == nil {
@@ -73,26 +70,47 @@ func ExtractControllerInfo(managedFields []metav1.ManagedFieldsEntry) (manager s
 
 		// Check if this entry manages status fields
 		if mf.Subresource == "status" || containsStatusFields(mf) {
-			if mf.Time.Time.After(latestStatusWrite) {
-				latestStatusWrite = mf.Time.Time
-				statusManager = mf.Manager
+			if mf.Time.Time.After(lastStatusWrite) {
+				lastStatusWrite = mf.Time.Time
+				manager = mf.Manager
+			}
+		}
+
+		// Check if this entry manages spec fields
+		if containsSpecFields(mf) {
+			if mf.Time.Time.After(lastSpecWrite) {
+				lastSpecWrite = mf.Time.Time
 			}
 		}
 	}
 
-	return statusManager, latestStatusWrite
+	return manager, lastStatusWrite, lastSpecWrite
+}
+
+// containsSpecFields checks if a managedFieldsEntry contains spec-related fields
+func containsSpecFields(mf metav1.ManagedFieldsEntry) bool {
+	if mf.FieldsV1 == nil || mf.Subresource != "" {
+		return false
+	}
+
+	// In Kubernetes, spec is almost always under "f:spec"
+	// For some built-in resources it might be different, but for CRs it's standard.
+	// We check if "f:spec" is present in the raw JSON of FieldsV1
+	return contains(string(mf.FieldsV1.Raw), "f:spec")
 }
 
 // containsStatusFields checks if a managedFieldsEntry contains status-related fields
 func containsStatusFields(mf metav1.ManagedFieldsEntry) bool {
-	// The FieldsV1 contains the fields this manager owns
-	// For status writers, they typically own "f:status" or subfields of status
 	if mf.FieldsV1 == nil {
 		return false
 	}
 
-	// Simple heuristic: check if manager name suggests a controller
-	// Common controller manager patterns
+	// For status writers, they typically own "f:status"
+	if contains(string(mf.FieldsV1.Raw), "f:status") {
+		return true
+	}
+
+	// Fallback to manager name heuristic
 	controllerPatterns := []string{
 		"controller",
 		"operator",
