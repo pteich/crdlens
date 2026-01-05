@@ -27,8 +27,9 @@ func TestCRListModel_Update_FetchedCRs(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.False(t, m.loading)
 	assert.Equal(t, 1, len(m.table.Rows()))
-	// New column structure: [0]=R (Ready Icon), [1]=Name, [2]=NS, [3]=Drift, [4]=Ctrl, [5]=Created
+	// New column structure: [0]=R, [1]=Status, [2]=Name, [3]=NS, [4]=Drift, [5]=Ctrl, [6]=Created
 	assert.Equal(t, "❔", m.table.Rows()[0][0])       // Ready icon (unknown - no conditions)
-	assert.Equal(t, "test-1", m.table.Rows()[0][1])  // Name
-	assert.Equal(t, "default", m.table.Rows()[0][2]) // Namespace
+	assert.Equal(t, "Unknown", m.table.Rows()[0][1]) // Status text (new column)
+	assert.Equal(t, "test-1", m.table.Rows()[0][2])  // Name
+	assert.Equal(t, "default", m.table.Rows()[0][3]) // Namespace
 }
