@@ -11,6 +11,15 @@ CRDLens is a terminal-based explorer for Kubernetes Custom Resource Definitions 
 - **Controller Awareness**: Monitor CR health with Ready indicators, Drift detection, and a dedicated **Reconcile Status** view showing live Lag and Silence tracking.
 - **Namespace Awareness**: Easily switch between namespaces or view resources across all namespaces.
 
+### Controller Awareness Details
+
+CRDLens provides deep insights into the reconciliation state of your resources:
+
+- **Status Interpretation**: Leverages standard Kubernetes logic (via `k8s.io/cli-utils`) to determine if a resource is **Ready**, **Progressing**, **Failed**, or **Terminating**.
+- **Drift Detection**: Calculates the difference between `metadata.generation` and `status.observedGeneration`.
+  - **Note**: If `status.observedGeneration` is missing, Drift defaults to `0` (assuming the resource is fully synced or legacy).
+- **Reconcile View**: Shows "Lag" (time since last spec change vs. status update) and "Silence" (time since last status update).
+
 ## Installation
 
 Download a pre-compiled binary for your operating system from here: https://github.com/pteich/crdlens/releases

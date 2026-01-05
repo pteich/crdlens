@@ -57,11 +57,7 @@ type CRDetailModel struct {
 	// Fields data
 	rootFields    []ValueField
 	currentFields []ValueField
-	navStack      []NavState // Reusing NavState from crd_spec.go? No, let's define locally or reuse if possible.
-	// NavState in crd_spec.go uses SchemaField, we need ValueField.
-	// Let's define ValueNavState to avoid coupling or dependency issues if packages assume different things (though they are same package).
-	// Actually they are in 'views' package so we can share if logical.
-	// But ValueField != SchemaField.
+	navStack      []NavState
 	valueNavStack []ValueNavState
 	currentPath   string
 }

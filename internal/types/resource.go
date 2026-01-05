@@ -5,6 +5,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/cli-utils/pkg/kstatus/status"
 )
 
 // ReconcileState represents the current reconciliation state of a resource
@@ -95,8 +96,11 @@ func (r Resource) Silence() time.Duration {
 }
 
 // Drift returns the difference between generation and observed generation
-// A positive value indicates the controller hasn't processed the latest spec
+// Returns 0 if observedGeneration is missing (which usually implies fully synced or legacy resource)
 func (r Resource) Drift() int64 {
+	if r.ObservedGeneration <= 0 {
+		return 0
+	}
 	return r.Generation - r.ObservedGeneration
 }
 
@@ -116,50 +120,53 @@ func (r Resource) HasObservedGeneration() bool {
 // ReadyStatus returns a summary of the ready state based on conditions
 // Returns: "Ready", "NotReady", "Progressing", or "Unknown"
 func (r Resource) ReadyStatus() string {
-	var ready, notReady, progressing bool
-
-	for _, c := range r.Conditions {
-		switch c.Type {
-		case "Ready", "Available", "Healthy", "Synced":
-			if c.Status == "True" {
-				ready = true
-			} else if c.Status == "False" {
-				notReady = true
-			}
-		case "Reconciling", "Progressing":
-			if c.Status == "True" {
-				progressing = true
-			}
-		}
+	if r.Raw == nil {
+		return "Unknown"
 	}
 
-	if progressing {
-		return "Progressing"
+	res, err := status.Compute(r.Raw)
+	if err != nil {
+		return "Unknown"
 	}
-	if ready && !notReady {
+
+	switch res.Status {
+	case status.CurrentStatus:
 		return "Ready"
-	}
-	if notReady {
+	case status.InProgressStatus:
+		return "Progressing"
+	case status.FailedStatus:
 		return "NotReady"
+	case status.TerminatingStatus:
+		return "Terminating"
+	case status.NotFoundStatus:
+		return "Missing"
+	default:
+		return "Unknown"
 	}
-	return "Unknown"
 }
 
 // ReadyIcon returns an icon representing the ready status
 func (r Resource) ReadyIcon() string {
-	// Only show reconciling spinner if we actually have observedGeneration
-	if r.HasObservedGeneration() && r.IsReconciling() {
-		return "⏳" // Reconciling/syncing
+	if r.Raw == nil {
+		return "❔"
 	}
 
-	status := r.ReadyStatus()
-	switch status {
-	case "Ready":
+	res, err := status.Compute(r.Raw)
+	if err != nil {
+		return "❔"
+	}
+
+	switch res.Status {
+	case status.CurrentStatus:
 		return "✅"
-	case "NotReady":
-		return "❌"
-	case "Progressing":
+	case status.InProgressStatus:
 		return "⏳"
+	case status.FailedStatus:
+		return "❌"
+	case status.TerminatingStatus:
+		return "🗑️"
+	case status.UnknownStatus:
+		return "❔"
 	default:
 		return "❔"
 	}

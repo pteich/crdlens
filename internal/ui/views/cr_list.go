@@ -70,9 +70,10 @@ type CRListModel struct {
 func NewCRListModel(client *k8s.Client, crd types.CRDInfo, namespace string, width, height int) *CRListModel {
 	columns := []table.Column{
 		{Title: "R", Width: 2},        // Ready icon
+		{Title: "Status", Width: 6},   // Ready status
 		{Title: "Name", Width: 40},    // Resource name (wider)
 		{Title: "NS", Width: 20},      // Namespace
-		{Title: "Drift", Width: 5},    // Generation drift
+		{Title: "Drift", Width: 6},    // Generation drift
 		{Title: "Ctrl", Width: 15},    // Controller manager (wider)
 		{Title: "Created", Width: 16}, // Creation date
 	}
@@ -298,6 +299,7 @@ func (m *CRListModel) resourceToRow(res types.Resource) table.Row {
 
 	return table.Row{
 		res.ReadyIcon(),
+		res.ReadyStatus(),
 		res.Name,
 		ns,
 		drift,
