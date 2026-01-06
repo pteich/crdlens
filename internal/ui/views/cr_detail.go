@@ -10,9 +10,10 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"sigs.k8s.io/yaml"
+
 	"github.com/pteich/crdlens/internal/k8s"
 	"github.com/pteich/crdlens/internal/types"
-	"sigs.k8s.io/yaml"
 )
 
 type DetailViewMode int
@@ -103,7 +104,7 @@ func NewCRDetailModel(client *k8s.Client, resource types.Resource, width, height
 	)
 	ft.SetStyles(s)
 
-	return &CRDetailModel{
+	m := &CRDetailModel{
 		viewport:    vp,
 		eventTable:  et,
 		fieldTable:  ft,
@@ -111,9 +112,11 @@ func NewCRDetailModel(client *k8s.Client, resource types.Resource, width, height
 		resource:    resource,
 		width:       width,
 		height:      height,
-		activeView:  DetailViewFields,
+		activeView:  DetailViewReconcile,
 		currentPath: resource.Name,
 	}
+	m.initReconcileTable()
+	return m
 }
 
 func (m *CRDetailModel) initReconcileTable() {
@@ -335,10 +338,41 @@ func (m *CRDetailModel) renderReconcileView() string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(controllerText),
 	)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		summaryStyle.Render(infoLine),
-		m.reconcileTable.View(),
-	)
+	// Additional status fields (excluding conditions)
+	var additionalFields []string
+	if res.Raw != nil {
+		if status, ok := res.Raw.Object["status"].(map[string]interface{}); ok {
+			var keys []string
+			for key := range status {
+				if key != "conditions" {
+					keys = append(keys, key)
+				}
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				additionalFields = append(additionalFields, fmt.Sprintf("%s: %v", key, status[key]))
+			}
+		}
+	}
+
+	var content string
+	if len(additionalFields) > 0 {
+		fieldsStyle := lipgloss.NewStyle().Margin(0, 0, 1, 0)
+		fieldsText := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Additional Status Fields:")
+		fieldsList := lipgloss.NewStyle().PaddingLeft(2).Render(lipgloss.JoinVertical(lipgloss.Left, additionalFields...))
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			summaryStyle.Render(infoLine),
+			fieldsStyle.Render(lipgloss.JoinVertical(lipgloss.Left, fieldsText, fieldsList)),
+			m.reconcileTable.View(),
+		)
+	} else {
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			summaryStyle.Render(infoLine),
+			m.reconcileTable.View(),
+		)
+	}
+
+	return content
 }
 
 // Messages

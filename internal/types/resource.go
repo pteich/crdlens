@@ -5,7 +5,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/cli-utils/pkg/kstatus/status"
 )
 
 // ReconcileState represents the current reconciliation state of a resource
@@ -117,56 +116,52 @@ func (r Resource) HasObservedGeneration() bool {
 	return r.ObservedGeneration > 0
 }
 
-// ReadyStatus returns a summary of the ready state based on conditions
-// Returns: "Ready", "NotReady", "Progressing", or "Unknown"
 func (r Resource) ReadyStatus() string {
-	if r.Raw == nil {
-		return "Unknown"
+	var ready, notReady, progressing bool
+
+	for _, c := range r.Conditions {
+		switch c.Type {
+		case "Ready", "Available", "Healthy", "Synced":
+			if c.Status == "True" {
+				ready = true
+			} else if c.Status == "False" {
+				notReady = true
+			}
+		case "Reconciling", "Progressing":
+			if c.Status == "True" {
+				progressing = true
+			}
+		}
 	}
 
-	res, err := status.Compute(r.Raw)
-	if err != nil {
-		return "Unknown"
-	}
-
-	switch res.Status {
-	case status.CurrentStatus:
-		return "Ready"
-	case status.InProgressStatus:
+	if progressing {
 		return "Progressing"
-	case status.FailedStatus:
-		return "NotReady"
-	case status.TerminatingStatus:
-		return "Terminating"
-	case status.NotFoundStatus:
-		return "Missing"
-	default:
-		return "Unknown"
 	}
+	if ready && !notReady {
+		return "Ready"
+	}
+	if notReady {
+		return "NotReady"
+	}
+	return "Unknown"
 }
 
 // ReadyIcon returns an icon representing the ready status
 func (r Resource) ReadyIcon() string {
-	if r.Raw == nil {
-		return "❔"
+	// Only show reconciling spinner if we actually have observedGeneration
+	if r.HasObservedGeneration() && r.IsReconciling() {
+		return "⏳" // Reconciling/syncing
 	}
 
-	res, err := status.Compute(r.Raw)
-	if err != nil {
-		return "❔"
-	}
-
-	switch res.Status {
-	case status.CurrentStatus:
+	status := r.ReadyStatus()
+	switch status {
+	case "Ready":
 		return "✅"
-	case status.InProgressStatus:
-		return "⏳"
-	case status.FailedStatus:
+	case "NotReady":
 		return "❌"
-	case status.TerminatingStatus:
-		return "🗑️"
-	case status.UnknownStatus:
-		return "❔"
+	case "Progressing":
+		return "⏳"
+
 	default:
 		return "❔"
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/pteich/crdlens/internal/k8s"
 	"github.com/pteich/crdlens/internal/search"
 	"github.com/pteich/crdlens/internal/types"
@@ -70,7 +71,7 @@ type CRListModel struct {
 func NewCRListModel(client *k8s.Client, crd types.CRDInfo, namespace string, width, height int) *CRListModel {
 	columns := []table.Column{
 		{Title: "R", Width: 2},        // Ready icon
-		{Title: "Status", Width: 6},   // Ready status
+		{Title: "Status", Width: 8},   // Ready status
 		{Title: "Name", Width: 40},    // Resource name (wider)
 		{Title: "NS", Width: 20},      // Namespace
 		{Title: "Drift", Width: 6},    // Generation drift
