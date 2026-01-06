@@ -124,21 +124,21 @@ func TestResource_ReadyStatus(t *testing.T) {
 			expected: "Ready",
 		},
 		{
-			name: "ready condition false (implies progressing by default in kstatus)",
+			name: "ready condition false (implies not ready)",
 			conditions: []interface{}{
 				map[string]interface{}{"type": "Ready", "status": "False"},
 			},
-			expected: "Progressing",
+			expected: "NotReady",
 		},
 		{
-			name: "stalled condition (implies failed)",
+			name: "stalled condition (unknown type - not in ready/notready list)",
 			conditions: []interface{}{
 				map[string]interface{}{
 					"type":   "Stalled",
 					"status": "True",
 				},
 			},
-			expected: "NotReady",
+			expected: "Unknown",
 		},
 		{
 			name: "progressing condition",
@@ -146,17 +146,21 @@ func TestResource_ReadyStatus(t *testing.T) {
 				map[string]interface{}{"type": "Progressing", "status": "True"},
 				map[string]interface{}{"type": "Ready", "status": "False"},
 			},
-			expected: "Progressing", // kstatus prioritizes Progressing
+			expected: "Progressing",
 		},
 		{
-			name:       "no conditions (defaults to ready/current for generic resources)",
+			name:       "no conditions (unknown status)",
 			conditions: nil,
-			expected:   "Ready",
+			expected:   "Unknown",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var conditions []Condition
+			if tt.conditions != nil {
+				conditions = parseConditions(tt.conditions)
+			}
 			res := Resource{
 				Raw: &unstructured.Unstructured{
 					Object: map[string]interface{}{
@@ -165,6 +169,7 @@ func TestResource_ReadyStatus(t *testing.T) {
 						},
 					},
 				},
+				Conditions: conditions,
 			}
 			result := res.ReadyStatus()
 			if result != tt.expected {
@@ -197,20 +202,20 @@ func TestResource_ReadyIcon(t *testing.T) {
 			expected: "✅",
 		},
 		{
-			name:       "not ready shows hourglass (default for Ready=False)",
+			name:       "not ready shows x mark",
 			generation: 5,
 			observed:   5,
 			conditions: []interface{}{
 				map[string]interface{}{"type": "Ready", "status": "False"},
 			},
-			expected: "⏳",
+			expected: "❌",
 		},
 		{
-			name:       "unknown shows checkmark (default for no conditions)",
+			name:       "unknown shows question mark",
 			generation: 5,
 			observed:   5,
 			conditions: nil,
-			expected:   "✅",
+			expected:   "❔",
 		},
 		{
 			name:       "progressing shows hourglass",
@@ -225,6 +230,10 @@ func TestResource_ReadyIcon(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var conditions []Condition
+			if tt.conditions != nil {
+				conditions = parseConditions(tt.conditions)
+			}
 			res := Resource{
 				Generation:         tt.generation,
 				ObservedGeneration: tt.observed,
@@ -239,6 +248,7 @@ func TestResource_ReadyIcon(t *testing.T) {
 						},
 					},
 				},
+				Conditions: conditions,
 			}
 			result := res.ReadyIcon()
 			if result != tt.expected {
@@ -310,4 +320,33 @@ func TestReconcileState_String(t *testing.T) {
 			}
 		})
 	}
+}
+
+// parseConditions converts test condition data to Condition structs
+func parseConditions(data []interface{}) []Condition {
+	var conditions []Condition
+	for _, c := range data {
+		condMap, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cond := Condition{
+			Type:    getTestString(condMap, "type"),
+			Status:  getTestString(condMap, "status"),
+			Reason:  getTestString(condMap, "reason"),
+			Message: getTestString(condMap, "message"),
+		}
+		conditions = append(conditions, cond)
+	}
+	return conditions
+}
+
+// getTestString extracts a string from a map
+func getTestString(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }
