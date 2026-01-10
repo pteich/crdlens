@@ -88,6 +88,14 @@ brews:
       owner: pteich
       name: homebrew-tap
 
+scoops:
+  - repository:
+      owner: pteich
+      name: scoop-bucket
+    homepage: "https://github.com/pteich/crdlens"
+    description: "TUI for viewing Kubernetes CRDs and CRs."
+    license: "MIT"
+
 release:
   draft: true
   replace_existing_draft: true

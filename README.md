@@ -44,7 +44,13 @@ or directly:
 brew install pteich/tap/crdlens
 ```
 
+### Scoop
 
+Use Scoop to install via bucket:
+```shell
+scoop bucket add pteich https://github.com/pteich/scoop-bucket.git
+scoop install crdlens
+```
 ### Go install
 
 You need a local Go installation to use this method.
