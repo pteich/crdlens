@@ -65,6 +65,10 @@ type CRListModel struct {
 	continueToken string
 	hasMorePages  bool
 	totalShown    int
+
+	// Empty namespace dialog
+	showDialog        bool
+	dialogSelectedYes bool
 }
 
 // NewCRListModel creates a new CR list model
@@ -137,6 +141,11 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.filtered = m.allResources
 		m.sortResources()
 		m.updateTableRows()
+
+		// Show dialog if no resources found and not in all-namespaces mode
+		if len(m.filtered) == 0 && m.namespace != "" && m.namespace != "all-namespaces" {
+			m.showDialog = true
+		}
 		return m, nil
 
 	case FetchedMoreCRsMsg:
@@ -161,6 +170,28 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Handle empty namespace dialog
+		if m.showDialog {
+			switch msg.String() {
+			case "left", "right", "tab":
+				m.dialogSelectedYes = !m.dialogSelectedYes
+				return m, nil
+			case "enter":
+				if m.dialogSelectedYes {
+					m.showDialog = false
+					return m, func() tea.Msg {
+						return SwitchToAllNamespacesMsg{}
+					}
+				}
+				m.showDialog = false
+				return m, nil
+			case "esc":
+				m.showDialog = false
+				return m, nil
+			}
+			return m, nil
+		}
+
 		// Handle sort menu
 		if m.showSortMenu {
 			switch msg.String() {
@@ -361,6 +392,43 @@ func (m *CRListModel) View() string {
 		view = lipgloss.JoinVertical(lipgloss.Left, view, "\n", sortMenu)
 	}
 
+	// Show empty namespace dialog if active
+	if m.showDialog {
+		yesStyle := lipgloss.NewStyle()
+		noStyle := lipgloss.NewStyle()
+		if m.dialogSelectedYes {
+			yesStyle = yesStyle.
+				Foreground(lipgloss.Color("229")).
+				Background(lipgloss.Color("57"))
+		} else {
+			noStyle = noStyle.
+				Foreground(lipgloss.Color("229")).
+				Background(lipgloss.Color("57"))
+		}
+
+		dialog := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7D56F4")).
+			Padding(1, 2).
+			Width(50).
+			Render(
+				"No CRs found in current namespace.\n\n" +
+					"Switch to all-namespaces?\n\n" +
+					"  " + yesStyle.Render("[ Yes ]") + "  " + noStyle.Render("[ No ]") +
+					"\n\n[←/→] Select  [Enter] Confirm  [Esc] Cancel",
+			)
+
+		view = lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			dialog,
+			lipgloss.WithWhitespaceChars(" "),
+			lipgloss.WithWhitespaceForeground(lipgloss.Color("#1a1a1a")),
+		)
+	}
+
 	if m.filtering {
 		view = lipgloss.JoinVertical(lipgloss.Left,
 			view,
@@ -436,3 +504,6 @@ func (m *CRListModel) FetchMoreCRs() tea.Msg {
 		ContinueToken: result.ContinueToken,
 	}
 }
+
+// SwitchToAllNamespacesMsg is sent when user wants to switch to all namespaces
+type SwitchToAllNamespacesMsg struct{}

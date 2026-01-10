@@ -87,6 +87,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case views.SwitchToAllNamespacesMsg:
+		m.config.AllNamespaces = true
+		m.client.Namespace = ""
+		if m.crList != nil {
+			cmds = append(cmds, m.crList.Refresh(""))
+		}
+		if m.crdList != nil {
+			cmds = append(cmds, m.crdList.Refresh("all-namespaces"))
+		}
+		return m, tea.Batch(cmds...)
+
 	case tea.KeyMsg:
 		if !isFiltering && m.state != NSPickerView {
 			switch msg.String() {
