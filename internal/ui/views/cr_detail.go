@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -55,6 +56,7 @@ type CRDetailModel struct {
 	activeView DetailViewMode
 
 	reconcileTable table.Model
+	reconcileView  viewport.Model
 	// Fields data
 	rootFields    []ValueField
 	currentFields []ValueField
@@ -116,6 +118,8 @@ func NewCRDetailModel(client *k8s.Client, resource types.Resource, width, height
 		currentPath: resource.Name,
 	}
 	m.initReconcileTable()
+	m.reconcileView = viewport.New(width, height-10)
+	m.updateReconcileViewContent()
 	return m
 }
 
@@ -130,7 +134,7 @@ func (m *CRDetailModel) initReconcileTable() {
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(true),
-		table.WithHeight(m.height-15), // More space for header/stats
+		table.WithHeight(m.height-30), // More space for header/stats
 	)
 	s := table.DefaultStyles()
 	s.Header = s.Header.BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("240")).BorderBottom(true).Bold(false)
@@ -138,6 +142,7 @@ func (m *CRDetailModel) initReconcileTable() {
 	t.SetStyles(s)
 	m.reconcileTable = t
 	m.updateReconcileTableRows()
+	m.updateReconcileViewContent()
 }
 
 func (m *CRDetailModel) updateReconcileTableRows() {
@@ -156,6 +161,7 @@ func (m *CRDetailModel) updateReconcileTableRows() {
 		}
 	}
 	m.reconcileTable.SetRows(rows)
+	m.updateReconcileViewContent()
 }
 
 // Init initializes the model
@@ -207,6 +213,7 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = (m.activeView + 1) % 4
 			if m.activeView == DetailViewReconcile && m.reconcileTable.Rows() == nil {
 				m.initReconcileTable()
+				m.updateReconcileViewContent()
 			}
 			return m, nil
 
@@ -253,6 +260,11 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.eventTable.SetHeight(msg.Height - 10)
 		m.fieldTable.SetHeight(msg.Height - 10)
 		m.reconcileTable.SetHeight(msg.Height - 15)
+		m.reconcileView.Width = msg.Width
+		m.reconcileView.Height = msg.Height - 10
+		if m.activeView == DetailViewReconcile {
+			m.updateReconcileViewContent()
+		}
 	}
 
 	// Update active view component
@@ -271,7 +283,7 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	case DetailViewReconcile:
 		var cmd tea.Cmd
-		m.reconcileTable, cmd = m.reconcileTable.Update(msg)
+		m.reconcileView, cmd = m.reconcileView.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -284,6 +296,11 @@ func (m *CRDetailModel) updateFieldTableRows() {
 		rows[i] = field.TableRow()
 	}
 	m.fieldTable.SetRows(rows)
+}
+
+func (m *CRDetailModel) updateReconcileViewContent() {
+	content := m.renderReconcileViewContent()
+	m.reconcileView.SetContent(content)
 }
 
 // View renders the model
@@ -308,7 +325,7 @@ func (m *CRDetailModel) View() string {
 	case DetailViewFields:
 		content = m.fieldTable.View()
 	case DetailViewReconcile:
-		content = m.renderReconcileView()
+		content = m.reconcileView.View()
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -318,7 +335,7 @@ func (m *CRDetailModel) View() string {
 	)
 }
 
-func (m *CRDetailModel) renderReconcileView() string {
+func (m *CRDetailModel) renderReconcileViewContent() string {
 	res := m.resource
 
 	// Summary Info
@@ -350,20 +367,46 @@ func (m *CRDetailModel) renderReconcileView() string {
 			}
 			sort.Strings(keys)
 			for _, key := range keys {
-				additionalFields = append(additionalFields, fmt.Sprintf("%s: %v", key, status[key]))
+				value := status[key]
+				var valueStr string
+				switch v := value.(type) {
+				case string, int, int32, int64, float32, float64, bool:
+					valueStr = fmt.Sprintf("%v", v)
+				default:
+					// Format maps and objects as YAML
+					yamlBytes, err := yaml.Marshal(v)
+					if err != nil {
+						valueStr = fmt.Sprintf("%v", v)
+					} else {
+						// Indent the YAML for better display
+						lines := string(yamlBytes)
+						if len(lines) > 0 && lines[len(lines)-1] == '\n' {
+							lines = lines[:len(lines)-1]
+						}
+						indentedLines := []string{fmt.Sprintf("%s:", key)}
+						for _, line := range strings.Split(lines, "\n") {
+							if line != "" {
+								indentedLines = append(indentedLines, "  "+line)
+							}
+						}
+						additionalFields = append(additionalFields, indentedLines...)
+						continue
+					}
+				}
+				additionalFields = append(additionalFields, fmt.Sprintf("%s: %s", key, valueStr))
 			}
 		}
 	}
 
 	var content string
 	if len(additionalFields) > 0 {
-		fieldsStyle := lipgloss.NewStyle().Margin(0, 0, 1, 0)
+		fieldsStyle := lipgloss.NewStyle().Margin(1, 0, 0, 0)
 		fieldsText := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Additional Status Fields:")
 		fieldsList := lipgloss.NewStyle().PaddingLeft(2).Render(lipgloss.JoinVertical(lipgloss.Left, additionalFields...))
 		content = lipgloss.JoinVertical(lipgloss.Left,
 			summaryStyle.Render(infoLine),
-			fieldsStyle.Render(lipgloss.JoinVertical(lipgloss.Left, fieldsText, fieldsList)),
 			m.reconcileTable.View(),
+			fieldsStyle.Render(lipgloss.JoinVertical(lipgloss.Left, fieldsText, fieldsList)),
 		)
 	} else {
 		content = lipgloss.JoinVertical(lipgloss.Left,
