@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -56,7 +55,14 @@ type CRDetailModel struct {
 	activeView DetailViewMode
 
 	reconcileTable table.Model
-	reconcileView  viewport.Model
+	reconcileFocus int // 0: Conditions, 1: Status
+
+	// Status fields data
+	statusTable         table.Model
+	rootStatusFields    []ValueField
+	currentStatusFields []ValueField
+	statusNavStack      []ValueNavState
+
 	// Fields data
 	rootFields    []ValueField
 	currentFields []ValueField
@@ -106,10 +112,19 @@ func NewCRDetailModel(client *k8s.Client, resource types.Resource, width, height
 	)
 	ft.SetStyles(s)
 
+	// Status Table
+	st := table.New(
+		table.WithColumns(fieldColumns),
+		table.WithFocused(false),
+		table.WithHeight(height/2),
+	)
+	st.SetStyles(s)
+
 	m := &CRDetailModel{
 		viewport:    vp,
 		eventTable:  et,
 		fieldTable:  ft,
+		statusTable: st,
 		client:      client,
 		resource:    resource,
 		width:       width,
@@ -118,8 +133,6 @@ func NewCRDetailModel(client *k8s.Client, resource types.Resource, width, height
 		currentPath: resource.Name,
 	}
 	m.initReconcileTable()
-	m.reconcileView = viewport.New(width, height-10)
-	m.updateReconcileViewContent()
 	return m
 }
 
@@ -134,7 +147,7 @@ func (m *CRDetailModel) initReconcileTable() {
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(true),
-		table.WithHeight(m.height-30), // More space for header/stats
+		table.WithHeight(10), // Fixed height for conditions
 	)
 	s := table.DefaultStyles()
 	s.Header = s.Header.BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("240")).BorderBottom(true).Bold(false)
@@ -142,7 +155,6 @@ func (m *CRDetailModel) initReconcileTable() {
 	t.SetStyles(s)
 	m.reconcileTable = t
 	m.updateReconcileTableRows()
-	m.updateReconcileViewContent()
 }
 
 func (m *CRDetailModel) updateReconcileTableRows() {
@@ -161,7 +173,6 @@ func (m *CRDetailModel) updateReconcileTableRows() {
 		}
 	}
 	m.reconcileTable.SetRows(rows)
-	m.updateReconcileViewContent()
 }
 
 // Init initializes the model
@@ -175,7 +186,13 @@ func (m *CRDetailModel) Init() tea.Cmd {
 
 // HasNavigationHistory returns whether there is navigation history to go back to
 func (m *CRDetailModel) HasNavigationHistory() bool {
-	return m.activeView == DetailViewFields && len(m.valueNavStack) > 0
+	if m.activeView == DetailViewFields {
+		return len(m.valueNavStack) > 0
+	}
+	if m.activeView == DetailViewReconcile && m.reconcileFocus == 1 {
+		return len(m.statusNavStack) > 0
+	}
+	return false
 }
 
 // Update handles messages
@@ -207,13 +224,16 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentFields = m.rootFields
 		m.updateFieldTableRows()
 
+		m.rootStatusFields = msg.StatusFields
+		m.currentStatusFields = m.rootStatusFields
+		m.updateStatusTableRows()
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":
 			m.activeView = (m.activeView + 1) % 4
 			if m.activeView == DetailViewReconcile && m.reconcileTable.Rows() == nil {
 				m.initReconcileTable()
-				m.updateReconcileViewContent()
 			}
 			return m, nil
 
@@ -226,6 +246,14 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentPath = lastState.TitlePath
 				m.updateFieldTableRows()
 				m.fieldTable.SetCursor(lastState.Cursor)
+				return m, nil
+			} else if m.activeView == DetailViewReconcile && m.reconcileFocus == 1 && len(m.statusNavStack) > 0 {
+				lastState := m.statusNavStack[len(m.statusNavStack)-1]
+				m.statusNavStack = m.statusNavStack[:len(m.statusNavStack)-1]
+
+				m.currentStatusFields = lastState.Fields
+				m.updateStatusTableRows()
+				m.statusTable.SetCursor(lastState.Cursor)
 				return m, nil
 			}
 			// If no history, let parent handle it (return to list)
@@ -249,6 +277,22 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return m, nil
+			} else if m.activeView == DetailViewReconcile && m.reconcileFocus == 1 {
+				idx := m.statusTable.Cursor()
+				if idx >= 0 && idx < len(m.currentStatusFields) {
+					selected := m.currentStatusFields[idx]
+					if len(selected.Children) > 0 {
+						// Drill down status
+						m.statusNavStack = append(m.statusNavStack, ValueNavState{
+							Fields: m.currentStatusFields,
+							Cursor: m.statusTable.Cursor(),
+						})
+						m.currentStatusFields = selected.Children
+						m.statusTable.SetCursor(0)
+						m.updateStatusTableRows()
+					}
+				}
+				return m, nil
 			}
 		}
 
@@ -259,12 +303,15 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Height = msg.Height - 8
 		m.eventTable.SetHeight(msg.Height - 10)
 		m.fieldTable.SetHeight(msg.Height - 10)
-		m.reconcileTable.SetHeight(msg.Height - 15)
-		m.reconcileView.Width = msg.Width
-		m.reconcileView.Height = msg.Height - 10
-		if m.activeView == DetailViewReconcile {
-			m.updateReconcileViewContent()
+
+		// Split view resizing
+		condHeight := 10
+		statusHeight := msg.Height - condHeight - 12 // Reserve space for headers/summary
+		if statusHeight < 5 {
+			statusHeight = 5
 		}
+		m.reconcileTable.SetHeight(condHeight)
+		m.statusTable.SetHeight(statusHeight)
 	}
 
 	// Update active view component
@@ -282,9 +329,34 @@ func (m *CRDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fieldTable, cmd = m.fieldTable.Update(msg)
 		cmds = append(cmds, cmd)
 	case DetailViewReconcile:
-		var cmd tea.Cmd
-		m.reconcileView, cmd = m.reconcileView.Update(msg)
-		cmds = append(cmds, cmd)
+		// Focus management logic
+		switch m.reconcileFocus {
+		case 0: // Conditions table focused
+			if k, ok := msg.(tea.KeyMsg); ok && k.String() == "down" {
+				if m.reconcileTable.Cursor() == len(m.reconcileTable.Rows())-1 {
+					m.reconcileFocus = 1
+					m.reconcileTable.Blur()
+					m.statusTable.Focus()
+					return m, nil
+				}
+			}
+			var cmd tea.Cmd
+			m.reconcileTable, cmd = m.reconcileTable.Update(msg)
+			cmds = append(cmds, cmd)
+
+		case 1: // Status table focused
+			if k, ok := msg.(tea.KeyMsg); ok && k.String() == "up" {
+				if m.statusTable.Cursor() == 0 && len(m.statusNavStack) == 0 {
+					m.reconcileFocus = 0
+					m.statusTable.Blur()
+					m.reconcileTable.Focus()
+					return m, nil
+				}
+			}
+			var cmd tea.Cmd
+			m.statusTable, cmd = m.statusTable.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -298,9 +370,12 @@ func (m *CRDetailModel) updateFieldTableRows() {
 	m.fieldTable.SetRows(rows)
 }
 
-func (m *CRDetailModel) updateReconcileViewContent() {
-	content := m.renderReconcileViewContent()
-	m.reconcileView.SetContent(content)
+func (m *CRDetailModel) updateStatusTableRows() {
+	rows := make([]table.Row, len(m.currentStatusFields))
+	for i, field := range m.currentStatusFields {
+		rows[i] = field.TableRow()
+	}
+	m.statusTable.SetRows(rows)
 }
 
 // View renders the model
@@ -308,13 +383,24 @@ func (m *CRDetailModel) View() string {
 	titleText := fmt.Sprintf("CR: %s", m.resource.Name)
 	if m.activeView == DetailViewFields && len(m.valueNavStack) > 0 {
 		titleText = fmt.Sprintf("CR: %s", m.currentPath)
+	} else if m.activeView == DetailViewReconcile && m.reconcileFocus == 1 && len(m.statusNavStack) > 0 {
+		// Show current path for status drill down too
+		if len(m.statusNavStack) > 0 {
+			// We don't track title path for status stack yet, but we can show generic drill down info or improve ValueNavState
+			// For now let's just show "CR: Status" or keep generic
+		}
+	}
+
+	helpText := fmt.Sprintf("[Tab: View (%s)] [Esc: Back] [Enter: Drill Down]", m.activeView.String())
+	if m.activeView == DetailViewReconcile {
+		helpText += " [↑/↓: Switch]"
 	}
 
 	header := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#7D56F4")).
 		Padding(0, 1).
-		Render(fmt.Sprintf("%s  [Tab: View (%s)] [Esc: Back] [Enter: Drill Down]", titleText, m.activeView.String()))
+		Render(fmt.Sprintf("%s  %s", titleText, helpText))
 
 	var content string
 	switch m.activeView {
@@ -325,7 +411,7 @@ func (m *CRDetailModel) View() string {
 	case DetailViewFields:
 		content = m.fieldTable.View()
 	case DetailViewReconcile:
-		content = m.reconcileView.View()
+		content = m.renderReconcileView()
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -335,7 +421,7 @@ func (m *CRDetailModel) View() string {
 	)
 }
 
-func (m *CRDetailModel) renderReconcileViewContent() string {
+func (m *CRDetailModel) renderReconcileView() string {
 	res := m.resource
 
 	// Summary Info
@@ -355,67 +441,21 @@ func (m *CRDetailModel) renderReconcileViewContent() string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(controllerText),
 	)
 
-	// Additional status fields (excluding conditions)
-	var additionalFields []string
-	if res.Raw != nil {
-		if status, ok := res.Raw.Object["status"].(map[string]interface{}); ok {
-			var keys []string
-			for key := range status {
-				if key != "conditions" {
-					keys = append(keys, key)
-				}
-			}
-			sort.Strings(keys)
-			for _, key := range keys {
-				value := status[key]
-				var valueStr string
-				switch v := value.(type) {
-				case string, int, int32, int64, float32, float64, bool:
-					valueStr = fmt.Sprintf("%v", v)
-				default:
-					// Format maps and objects as YAML
-					yamlBytes, err := yaml.Marshal(v)
-					if err != nil {
-						valueStr = fmt.Sprintf("%v", v)
-					} else {
-						// Indent the YAML for better display
-						lines := string(yamlBytes)
-						if len(lines) > 0 && lines[len(lines)-1] == '\n' {
-							lines = lines[:len(lines)-1]
-						}
-						indentedLines := []string{fmt.Sprintf("%s:", key)}
-						for _, line := range strings.Split(lines, "\n") {
-							if line != "" {
-								indentedLines = append(indentedLines, "  "+line)
-							}
-						}
-						additionalFields = append(additionalFields, indentedLines...)
-						continue
-					}
-				}
-				additionalFields = append(additionalFields, fmt.Sprintf("%s: %s", key, valueStr))
-			}
-		}
+	fieldsStyle := lipgloss.NewStyle().Margin(1, 0, 0, 0)
+	fieldsText := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Additional Status Fields:")
+	
+	// Add focus indication
+	statusTableStyle := lipgloss.NewStyle()
+	if m.reconcileFocus == 1 {
+		statusTableStyle = statusTableStyle.Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("62")) // Highlight
 	}
 
-	var content string
-	if len(additionalFields) > 0 {
-		fieldsStyle := lipgloss.NewStyle().Margin(1, 0, 0, 0)
-		fieldsText := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Additional Status Fields:")
-		fieldsList := lipgloss.NewStyle().PaddingLeft(2).Render(lipgloss.JoinVertical(lipgloss.Left, additionalFields...))
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			summaryStyle.Render(infoLine),
-			m.reconcileTable.View(),
-			fieldsStyle.Render(lipgloss.JoinVertical(lipgloss.Left, fieldsText, fieldsList)),
-		)
-	} else {
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			summaryStyle.Render(infoLine),
-			m.reconcileTable.View(),
-		)
-	}
-
-	return content
+	return lipgloss.JoinVertical(lipgloss.Left,
+		summaryStyle.Render(infoLine),
+		m.reconcileTable.View(),
+		fieldsStyle.Render(fieldsText),
+		statusTableStyle.Render(m.statusTable.View()),
+	)
 }
 
 // Messages
@@ -428,7 +468,8 @@ type FetchedEventsMsg struct {
 }
 
 type ParsedFieldsMsg struct {
-	Fields []ValueField
+	Fields       []ValueField
+	StatusFields []ValueField
 }
 
 // FormatYAML is a command to format the resource as YAML
@@ -453,8 +494,23 @@ func (m *CRDetailModel) FetchEvents() tea.Msg {
 // ParseFields parses the resource content into fields
 func (m *CRDetailModel) ParseFields() tea.Msg {
 	if m.resource.Raw == nil {
-		return ParsedFieldsMsg{Fields: []ValueField{}}
+		return ParsedFieldsMsg{Fields: []ValueField{}, StatusFields: []ValueField{}}
 	}
+
+	// Parse all fields
 	fields := ParseValueFields(m.resource.Raw.Object, "")
-	return ParsedFieldsMsg{Fields: fields}
+
+	// Parse status fields, excluding conditions
+	var statusFields []ValueField
+	if status, ok := m.resource.Raw.Object["status"].(map[string]interface{}); ok {
+		statusCopy := make(map[string]interface{})
+		for k, v := range status {
+			if k != "conditions" {
+				statusCopy[k] = v
+			}
+		}
+		statusFields = ParseValueFields(statusCopy, "status")
+	}
+
+	return ParsedFieldsMsg{Fields: fields, StatusFields: statusFields}
 }

@@ -149,6 +149,7 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case FetchedMoreCRsMsg:
+		m.loading = false
 		m.allResources = append(m.allResources, msg.Resources...)
 		m.continueToken = msg.ContinueToken
 		m.hasMorePages = msg.ContinueToken != ""
@@ -357,7 +358,7 @@ func (m *CRListModel) SelectedResource() types.Resource {
 
 // View renders the model
 func (m *CRListModel) View() string {
-	if m.loading {
+	if m.loading && len(m.allResources) == 0 {
 		return fmt.Sprintf("\n %s Loading Custom Resources...", m.spinner.View())
 	}
 	if m.err != nil {
@@ -370,11 +371,16 @@ func (m *CRListModel) View() string {
 		countInfo += "+"
 	}
 
+	loadingIndicator := ""
+	if m.loading {
+		loadingIndicator = fmt.Sprintf(" %s", m.spinner.View())
+	}
+
 	title := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#7D56F4")).
 		Padding(0, 1).
-		Render(fmt.Sprintf("%s (%s) [Sort: %s]", m.crd.Kind, countInfo, m.sortMode.String()))
+		Render(fmt.Sprintf("%s (%s) [Sort: %s]%s", m.crd.Kind, countInfo, m.sortMode.String(), loadingIndicator))
 
 	view := lipgloss.JoinVertical(lipgloss.Left,
 		title,
