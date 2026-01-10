@@ -214,12 +214,6 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "s":
 				m.showSortMenu = !m.showSortMenu
 				return m, nil
-			case "right":
-				// Load next page with right arrow
-				if m.hasMorePages {
-					return m, m.FetchMoreCRs
-				}
-				return m, nil
 			}
 		}
 	}
@@ -240,6 +234,18 @@ func (m *CRListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
+
+	// Lazy load more CRs when scrolling near the end
+	if m.hasMorePages && !m.loading && !m.filtering {
+		cursor := m.table.Cursor()
+		rows := m.table.Rows()
+		threshold := 10 // Start loading when within 10 rows of the end
+		if cursor >= len(rows)-threshold {
+			m.loading = true
+			cmd = tea.Batch(cmd, m.FetchMoreCRs)
+		}
+	}
+
 	return m, tea.Batch(cmd, sCmd)
 }
 
@@ -366,7 +372,7 @@ func (m *CRListModel) View() string {
 	// Footer with keybindings
 	footer := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241")).
-		Render("[/] Search  [s] Sort  [→] More  [Enter] Details  [Esc] Back")
+		Render("[/] Search  [s] Sort  [Enter] Details  [Esc] Back")
 	view = lipgloss.JoinVertical(lipgloss.Left, view, "\n", footer)
 
 	return view
