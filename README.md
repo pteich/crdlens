@@ -111,10 +111,10 @@ crdlens
 
 ## Screenshots
 
-![CRD List](screenshots/crd-list.png)
-![CRD Fields](screenshots/crd-fields.png)
-![CRD Field Description](screenshots/crd-field-description.png)
-![Namespace Switcher](screenshots/ns-switcher.png)
-![CR List](screenshots/cr-list.png)
-![CR Reconcile](screenshots/cr-reconcile.png)
-![CR Field Values](screenshots/cr-field-values.png)
+![CRD List](website/screenshots/crd-list.png)
+![CRD Fields](website/screenshots/crd-fields.png)
+![CRD Field Description](website/screenshots/crd-field-description.png)
+![Namespace Switcher](website/screenshots/ns-switcher.png)
+![CR List](website/screenshots/cr-list.png)
+![CR Reconcile](website/screenshots/cr-reconcile.png)
+![CR Field Values](website/screenshots/cr-field-values.png)

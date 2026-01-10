@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://crdlens.pteich.de/sitemap.xml
