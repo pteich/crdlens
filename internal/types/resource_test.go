@@ -153,6 +153,26 @@ func TestResource_ReadyStatus(t *testing.T) {
 			conditions: nil,
 			expected:   "Unknown",
 		},
+		{
+			name:       "argocd healthy status",
+			conditions: nil,
+			expected:   "Ready",
+		},
+		{
+			name:       "argocd degraded status",
+			conditions: nil,
+			expected:   "NotReady",
+		},
+		{
+			name:       "common phase running",
+			conditions: nil,
+			expected:   "Ready",
+		},
+		{
+			name:       "common phase pending",
+			conditions: nil,
+			expected:   "Progressing",
+		},
 	}
 
 	for _, tt := range tests {
@@ -161,13 +181,31 @@ func TestResource_ReadyStatus(t *testing.T) {
 			if tt.conditions != nil {
 				conditions = parseConditions(tt.conditions)
 			}
+			
+			obj := map[string]interface{}{
+				"status": map[string]interface{}{
+					"conditions": tt.conditions,
+				},
+			}
+
+			// Add custom status fields based on test case name
+			if tt.name == "argocd healthy status" {
+				obj["status"].(map[string]interface{})["health"] = map[string]interface{}{
+					"status": "Healthy",
+				}
+			} else if tt.name == "argocd degraded status" {
+				obj["status"].(map[string]interface{})["health"] = map[string]interface{}{
+					"status": "Degraded",
+				}
+			} else if tt.name == "common phase running" {
+				obj["status"].(map[string]interface{})["phase"] = "Running"
+			} else if tt.name == "common phase pending" {
+				obj["status"].(map[string]interface{})["phase"] = "Pending"
+			}
+
 			res := Resource{
 				Raw: &unstructured.Unstructured{
-					Object: map[string]interface{}{
-						"status": map[string]interface{}{
-							"conditions": tt.conditions,
-						},
-					},
+					Object: obj,
 				},
 				Conditions: conditions,
 			}

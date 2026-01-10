@@ -119,17 +119,44 @@ func (r Resource) HasObservedGeneration() bool {
 func (r Resource) ReadyStatus() string {
 	var ready, notReady, progressing bool
 
-	for _, c := range r.Conditions {
-		switch c.Type {
-		case "Ready", "Available", "Healthy", "Synced":
-			if c.Status == "True" {
-				ready = true
-			} else if c.Status == "False" {
-				notReady = true
+	if len(r.Conditions) > 0 {
+		for _, c := range r.Conditions {
+			switch c.Type {
+			case "Ready", "Available", "Healthy", "Synced":
+				if c.Status == "True" {
+					ready = true
+				} else if c.Status == "False" {
+					notReady = true
+				}
+			case "Reconciling", "Progressing":
+				if c.Status == "True" {
+					progressing = true
+				}
 			}
-		case "Reconciling", "Progressing":
-			if c.Status == "True" {
-				progressing = true
+		}
+	} else {
+		// Parse additional non-standard status fields of common CRs
+		if r.Raw != nil {
+			// Check for ArgoCD health status
+			if healthStatus, found, _ := unstructured.NestedString(r.Raw.Object, "status", "health", "status"); found {
+				switch healthStatus {
+				case "Healthy":
+					ready = true
+				case "Degraded", "Missing", "Unknown":
+					notReady = true
+				case "Progressing", "Suspended":
+					progressing = true
+				}
+			} else if phase, found, _ := unstructured.NestedString(r.Raw.Object, "status", "phase"); found {
+				// specific check for common phase patterns
+				switch phase {
+				case "Running", "Ready", "Bound", "Active": // Bound is common for PVC/PV
+					ready = true
+				case "Failed", "Error", "Terminating":
+					notReady = true
+				case "Pending", "Creating", "Provisioning":
+					progressing = true
+				}
 			}
 		}
 	}
