@@ -19,9 +19,9 @@
     <meta property="og:type" content="website" />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="CRDLens - Kubernetes CRD Explorer" />
+    <meta name="twitter:title" content="CRDLens - TUI for Kubernetes CRDs" />
     <meta name="twitter:description"
-        content="A terminal-based explorer for Kubernetes Custom Resource Definitions and Custom Resources" />
+        content="Interactive terminal interface for managing Kubernetes Custom Resource Definitions. Native performance, no heavy IDEs required." />
     <meta name="twitter:image"
         content="https://raw.githubusercontent.com/pteich/crdlens/main/screenshots/crd-list.png" />
 
@@ -38,7 +38,7 @@
                 "name": "CRDLens",
                 "applicationCategory": "DeveloperTool",
                 "operatingSystem": ["Windows", "macOS", "Linux"],
-                "description": "A fast terminal-based explorer for Kubernetes Custom Resource Definitions and Custom Resources",
+                "description": "Interactive CLI explorer for Kubernetes Custom Resource Definitions.",
                 "offers": {
                     "@type": "Offer",
                     "price": "0",
@@ -540,10 +540,10 @@
         <div class="container">
             <img src="Icon.svg" alt="crdlens logo" class="app-icon" />
             <h1>CRDLens</h1>
-            <p>Terminal-Based Kubernetes CRD Explorer UI</p>
+            <p>Interactive Terminal Explorer for Kubernetes CRDs</p>
             <p>
-                A fast terminal-based explorer for Kubernetes Custom Resource Definitions and Custom Resources. Built
-                for speed and efficiency.
+                Inspect, filter, and manage Custom Resource Definitions directly from your terminal.
+                A lightweight, fast TUI alternative to heavy web dashboards.
             </p>
             <div class="download-section">
                 <p class="version">Latest Version: v0.4.0</p>
@@ -587,14 +587,14 @@
             </div>
 
             <div class="install-container">
-                <h3 style="color: var(--primary); font-size: 1.2rem;">Install via Homebrew (Mac/Linux)</h3>
+                <h3 style="color: var(--primary); font-size: 1.2rem;">Install with Homebrew</h3>
                 <div class="code-block">
                     <div class="code-command">brew install pteich/tap/crdlens</div>
                 </div>
             </div>
 
             <div class="install-container">
-                <h3 style="color: var(--primary); font-size: 1.2rem;">Install via Scoop (Windows)</h3>
+                <h3 style="color: var(--primary); font-size: 1.2rem;">Install with Scoop</h3>
 
                 <div class="code-block">
                     <div class="code-command">scoop bucket add pteich https://github.com/pteich/scoop-bucket.git
@@ -609,65 +609,61 @@
             <h2 class="section-title">Key Features</h2>
             <div class="features-grid">
                 <div class="feature-card">
-                    <h3>CRD Discovery</h3>
+                    <h3>Discover custom resources</h3>
                     <p>
-                        List all valid CRDs in your cluster with resource counts. Explore complex schemas with ease.
+                        Instantly list all available CRDs in your cluster. See accurate resource counts at a glance.
                     </p>
                 </div>
                 <div class="feature-card">
-                    <h3>Hierarchical Schema Explorer</h3>
+                    <h3>Navigate Complex Schemas</h3>
                     <p>
-                        Drill down into complex CRD schemas (OpenAPI v3) with a tree-based view. Toggle between flat and
-                        hierarchical views.
+                        Tame massive OpenAPI v3 schemas. Explore deeply nested structures using an intuitive tree view.
                     </p>
                 </div>
                 <div class="feature-card">
-                    <h3>Resource Management</h3>
+                    <h3>Manage Any Resource</h3>
                     <p>
-                        Browse Custom Resources for any CRD with fuzzy filtering and seamless lazy-loading for large
-                        lists.
+                        Browse instances of any CRD. Use fuzzy search to filter results (Cmd/Ctrl+F) and handle large
+                        lists seamlessly.
                     </p>
                 </div>
                 <div class="feature-card">
-                    <h3>Smart UX</h3>
+                    <h3>Context Aware</h3>
                     <p>
-                        Proactively suggests switching to all-namespaces mode if no resources are found in the current
-                        namespace.
+                        Smart navigation that adapts to your environment, suggesting namespace switches when resources
+                        are missing.
                     </p>
                 </div>
                 <div class="feature-card">
-                    <h3>Deep Inspection</h3>
+                    <h3>Inspect Details</h3>
                     <p>
-                        View resource details including YAML configuration, Events, and a structured Fields view with
-                        descriptions.
+                        Access full YAML configs, real-time Events, and structured field references without leaving the
+                        terminal.
                     </p>
                 </div>
                 <div class="feature-card">
-                    <h3>Controller Awareness</h3>
+                    <h3>Monitor Controllers</h3>
                     <p>
-                        Monitor CR health with Ready indicators, Drift detection, and a dedicated Reconcile Status view
-                        showing live Lag and Silence tracking.
+                        Visual indicators for Ready states and Drift detection help you spot reconciliation issues
+                        instantly.
                     </p>
                 </div>
                 <div class="feature-card">
-                    <h3>Namespace Awareness</h3>
+                    <h3>Namespace Switching</h3>
                     <p>
-                        Easily switch between namespaces or view resources across all namespaces with a quick namespace
-                        switcher.
+                        Jump between namespaces or toggle "All Namespaces" mode with a single keystroke.
                     </p>
                 </div>
                 <div class="feature-card">
-                    <h3>Fast & Lightweight</h3>
+                    <h3>Lightweight Speed</h3>
                     <p>
-                        Written in Go for speed and efficiency. Handles large resource lists with lazy-loading and
-                        optimized rendering.
+                        Zero dependencies, single binary. Written in Go to start instantly and use minimal resources.
                     </p>
                 </div>
                 <div class="feature-card">
-                    <h3>Sort & Filter</h3>
+                    <h3>Power User Tools</h3>
                     <p>
-                        Quick sort options by Status, Name, Drift, or Age. Full-text search for finding resources
-                        quickly.
+                        Sort by age, status, or name. Filter drifts. Designed for keyboard-first efficiency.
                     </p>
                 </div>
             </div>
